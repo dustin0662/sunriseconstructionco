@@ -3372,9 +3372,15 @@ export default function App(){
         {/* ── STATS ── */}
         <Sec id="stats" style={{padding:m?'32px 20px':'56px 48px'}}>
           <div style={{maxWidth:1100,margin:'0 auto',background:'rgba(2,2,12,.82)',backdropFilter:'blur(16px)',border:'1px solid rgba(249,115,22,.1)',padding:m?'28px 20px':'46px 40px'}}>
+            <div style={{textAlign:'center',marginBottom:m?22:32}}>
+              <div style={{...NB,fontSize:m?10:11,letterSpacing:'4px',textTransform:'uppercase',color:A,marginBottom:8,display:'inline-flex',alignItems:'center',gap:12}}>
+                <div style={{width:22,height:1,background:A}}/>Our Team's Track Record<div style={{width:22,height:1,background:A}}/>
+              </div>
+              <div style={{...NB,fontSize:m?12:14,fontWeight:300,color:'#999',letterSpacing:'.5px',maxWidth:680,margin:'0 auto',lineHeight:1.55}}>Built and installed by the people who run SRC&amp;D — combined field experience from utility-scale solar projects our team has personally delivered.</div>
+            </div>
             {m?(
               <div style={{display:'flex',justifyContent:'space-around',gap:16}}>
-                {[{n:'500+',l:'Megawatts Installed'},{n:'1.2M+',l:'Modules Placed'},{n:'9',l:'States'}].map(s=>(
+                {[{n:'500+',l:'MW Our Team Installed'},{n:'1.2M+',l:'Modules Team Placed'},{n:'9',l:'States Worked'}].map(s=>(
                   <div key={s.n} style={{textAlign:'center'}}>
                     <div style={{...BB,fontSize:38,color:'#F5F0EB',lineHeight:1}}>{s.n}</div>
                     <div style={{...NB,fontSize:9,letterSpacing:'2px',textTransform:'uppercase',color:'#ccc',textShadow:'0 1px 3px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,1)',marginTop:6}}>{s.l}</div>
@@ -3383,11 +3389,11 @@ export default function App(){
               </div>
             ):(
               <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr auto 1fr',alignItems:'center'}}>
-                <div style={{textAlign:'center'}}><div style={{...BB,fontSize:66,color:'#F5F0EB',lineHeight:1}}>500+</div><div style={{...NB,fontSize:12,letterSpacing:'3.5px',textTransform:'uppercase',color:'#ccc',textShadow:'0 1px 3px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,1)',marginTop:8}}>Megawatts Installed</div></div>
+                <div style={{textAlign:'center'}}><div style={{...BB,fontSize:66,color:'#F5F0EB',lineHeight:1}}>500+</div><div style={{...NB,fontSize:12,letterSpacing:'3.5px',textTransform:'uppercase',color:'#ccc',textShadow:'0 1px 3px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,1)',marginTop:8}}>Megawatts Our Team Installed</div></div>
                 <div style={{width:1,height:70,background:'linear-gradient(to bottom,transparent,rgba(249,115,22,.4),transparent)',margin:'0 16px'}}/>
-                <div style={{textAlign:'center'}}><div style={{...BB,fontSize:66,color:'#F5F0EB',lineHeight:1}}>1.2M+</div><div style={{...NB,fontSize:12,letterSpacing:'3.5px',textTransform:'uppercase',color:'#ccc',textShadow:'0 1px 3px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,1)',marginTop:8}}>Modules Placed</div></div>
+                <div style={{textAlign:'center'}}><div style={{...BB,fontSize:66,color:'#F5F0EB',lineHeight:1}}>1.2M+</div><div style={{...NB,fontSize:12,letterSpacing:'3.5px',textTransform:'uppercase',color:'#ccc',textShadow:'0 1px 3px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,1)',marginTop:8}}>Modules Team Placed</div></div>
                 <div style={{width:1,height:70,background:'linear-gradient(to bottom,transparent,rgba(249,115,22,.4),transparent)',margin:'0 16px'}}/>
-                <div style={{textAlign:'center'}}><div style={{...BB,fontSize:66,color:'#F5F0EB',lineHeight:1}}>9</div><div style={{...NB,fontSize:12,letterSpacing:'3.5px',textTransform:'uppercase',color:'#ccc',textShadow:'0 1px 3px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,1)',marginTop:8}}>States Covered</div></div>
+                <div style={{textAlign:'center'}}><div style={{...BB,fontSize:66,color:'#F5F0EB',lineHeight:1}}>9</div><div style={{...NB,fontSize:12,letterSpacing:'3.5px',textTransform:'uppercase',color:'#ccc',textShadow:'0 1px 3px rgba(0,0,0,0.95), 0 0 12px rgba(0,0,0,1)',marginTop:8}}>States Team Worked</div></div>
               </div>
             )}
           </div>
