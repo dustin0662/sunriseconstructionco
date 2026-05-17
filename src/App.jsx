@@ -122,6 +122,100 @@ const LOGO_SRC="data:image/webp;base64,UklGRohUAABXRUJQVlA4IHxUAABQgwKdASo4BCEEP
 
 
 
+// ── GLB MODEL VIEWER (lazy-loads three.js) ──────────────────────────────────
+function GLBViewer({ src, height }) {
+  const mountRef = useRef(null)
+  const [error, setError] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    const mount = mountRef.current
+    if (!mount) return
+    let cancelled = false
+    let renderer, controls, rafId, onResize
+    Promise.all([
+      import('three'),
+      import('three/examples/jsm/loaders/GLTFLoader.js'),
+      import('three/examples/jsm/controls/OrbitControls.js')
+    ]).then(([THREE, gltfMod, ocMod]) => {
+      if (cancelled || !mountRef.current) return
+      const GLTFLoader = gltfMod.GLTFLoader
+      const OrbitControls = ocMod.OrbitControls
+      const w = mount.clientWidth
+      const h = height
+      const scene = new THREE.Scene()
+      const camera = new THREE.PerspectiveCamera(45, w/h, 0.1, 5000)
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+      renderer.setSize(w, h)
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+      if (THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding
+      mount.appendChild(renderer.domElement)
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x202030, 1.1))
+      const dir = new THREE.DirectionalLight(0xffffff, 1.2)
+      dir.position.set(40, 80, 60)
+      scene.add(dir)
+      const fill = new THREE.DirectionalLight(0xffe2b5, 0.5)
+      fill.position.set(-40, 20, -30)
+      scene.add(fill)
+      controls = new OrbitControls(camera, renderer.domElement)
+      controls.enableDamping = true
+      controls.dampingFactor = 0.08
+      controls.autoRotate = true
+      controls.autoRotateSpeed = 0.5
+      controls.enablePan = false
+      new GLTFLoader().load(src, (gltf) => {
+        if (cancelled) return
+        const model = gltf.scene
+        const box = new THREE.Box3().setFromObject(model)
+        const size = box.getSize(new THREE.Vector3())
+        const center = box.getCenter(new THREE.Vector3())
+        model.position.sub(center)
+        const maxDim = Math.max(size.x, size.y, size.z)
+        const fitDist = maxDim / (2 * Math.tan(Math.PI * camera.fov / 360))
+        camera.position.set(fitDist*1.4, fitDist*0.75, fitDist*1.4)
+        camera.near = Math.max(maxDim/100, 0.01)
+        camera.far = maxDim * 20
+        camera.updateProjectionMatrix()
+        controls.target.set(0,0,0)
+        controls.minDistance = fitDist * 0.5
+        controls.maxDistance = fitDist * 3
+        controls.update()
+        scene.add(model)
+        setLoaded(true)
+      }, undefined, () => setError(true))
+      const animate = () => {
+        rafId = requestAnimationFrame(animate)
+        controls.update()
+        renderer.render(scene, camera)
+      }
+      animate()
+      onResize = () => {
+        if (!mountRef.current) return
+        const nw = mountRef.current.clientWidth
+        camera.aspect = nw / h
+        camera.updateProjectionMatrix()
+        renderer.setSize(nw, h)
+      }
+      window.addEventListener('resize', onResize)
+    }).catch(() => setError(true))
+    return () => {
+      cancelled = true
+      if (rafId) cancelAnimationFrame(rafId)
+      if (onResize) window.removeEventListener('resize', onResize)
+      if (controls) controls.dispose()
+      if (renderer) {
+        renderer.dispose()
+        if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement)
+      }
+    }
+  }, [src, height])
+  return (
+    <div ref={mountRef} style={{width:'100%',height:height,position:'relative',cursor:'grab'}}>
+      {!loaded && !error && <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(249,115,22,.55)',fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,letterSpacing:'3px',textTransform:'uppercase'}}>Loading site model…</div>}
+      {error && <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'rgba(249,115,22,.6)',fontFamily:"'Barlow Condensed',sans-serif",fontSize:11,letterSpacing:'2px',textTransform:'uppercase'}}>Model unavailable</div>}
+    </div>
+  )
+}
+
 // ── ICON COMPONENTS — no template literals inside JSX ────────────────────────
 function OrbitalIcon({on}) {
   const pu  = {animation: on?'pulse 1.4s ease-in-out infinite':'none', transformOrigin:'center'}
@@ -3385,6 +3479,12 @@ export default function App(){
                   </div>
                 ))}
               </div>
+            </div>
+            <div style={{position:'relative',overflow:'hidden',border:'1px solid rgba(249,115,22,.18)',background:'rgba(8,8,20,.65)',backdropFilter:'blur(8px)',marginBottom:24}}>
+              <GLBViewer src="/models/midway.glb" height={m?240:340}/>
+              <div style={{position:'absolute',top:10,left:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:9,letterSpacing:'2px',textTransform:'uppercase',color:'rgba(249,115,22,.7)',pointerEvents:'none'}}>▲ LIVE SITE MODEL</div>
+              <div style={{position:'absolute',bottom:10,right:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:9,letterSpacing:'1.5px',textTransform:'uppercase',color:'rgba(249,115,22,.55)',pointerEvents:'none'}}>MIDWAY · 11/4/25</div>
+              <div style={{position:'absolute',inset:0,background:'radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.45) 100%)',pointerEvents:'none'}}/>
             </div>
             <div>
               <div style={{...NB,fontSize:11,letterSpacing:'4px',textTransform:'uppercase',color:A,marginBottom:14,display:'flex',alignItems:'center',gap:12}}>
