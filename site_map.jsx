@@ -116,7 +116,13 @@ async function fileToCanvas(file, pdfScale = 2) {
     const buf = await file.arrayBuffer();
     const pdf = await pdfjs.getDocument({ data: buf }).promise;
     const page = await pdf.getPage(1);
-    const viewport = page.getViewport({ scale: pdfScale });
+    let viewport = page.getViewport({ scale: pdfScale });
+    // Cap to a max long edge so detection stays interactive on large drawings.
+    const maxEdge = 4000;
+    const longest = Math.max(viewport.width, viewport.height);
+    if (longest > maxEdge) {
+      viewport = page.getViewport({ scale: pdfScale * (maxEdge / longest) });
+    }
     const canvas = document.createElement("canvas");
     canvas.width = Math.ceil(viewport.width);
     canvas.height = Math.ceil(viewport.height);
@@ -141,41 +147,60 @@ async function fileToCanvas(file, pdfScale = 2) {
   }
 }
 
-// Threshold to a binary mask of "saturated" pixels (the colored point markers).
+// Find enclosed light regions (the interior of every dark-outlined marker).
+// Works for circles regardless of fill color (including pure white) because we
+// segment on "is this pixel surrounded by darker pixels" rather than on color.
 function detectPoints(canvas, opts = {}) {
   const {
-    satMin = 0.30,
-    valMin = 0.20,
-    valMax = 0.96,
-    minBlob = 4,
-    maxBlob = 400,
-    arMin = 0.35,
-    arMax = 2.8,
+    darkV = 0.40,        // V <= darkV is treated as the outline / "wall"
+    minBlob = 30,
+    maxBlob = 2000,
+    arMin = 0.55,
+    arMax = 1.8,
+    minBboxPx = 8,
+    maxBboxPx = 80,
   } = opts;
   const W = canvas.width;
   const H = canvas.height;
   const data = canvas.getContext("2d").getImageData(0, 0, W, H).data;
   const N = W * H;
-  const mask = new Uint8Array(N);
+  // light[i] = 1 means the pixel is part of background / interior (not wall).
+  const light = new Uint8Array(N);
+  const v255 = Math.round(darkV * 255);
   for (let i = 0; i < N; i++) {
     const r = data[4 * i];
     const g = data[4 * i + 1];
     const b = data[4 * i + 2];
-    const mx = Math.max(r, g, b);
-    const mn = Math.min(r, g, b);
-    const v = mx / 255;
-    const s = mx === 0 ? 0 : (mx - mn) / mx;
-    if (s >= satMin && v >= valMin && v <= valMax) mask[i] = 1;
+    const mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    if (mx > v255) light[i] = 1;
   }
-  // 4-connected component labeling with BFS, computing centroids.
-  const visited = new Uint8Array(N);
+  // Flood-fill light pixels reachable from the image border. Anything reached
+  // is the outer background; anything light but unreached is enclosed.
+  const reached = new Uint8Array(N);
   const queue = new Int32Array(N);
+  let qh = 0;
+  let qt = 0;
+  const push = (idx) => { if (light[idx] && !reached[idx]) { reached[idx] = 1; queue[qt++] = idx; } };
+  for (let x = 0; x < W; x++) { push(x); push((H - 1) * W + x); }
+  for (let y = 0; y < H; y++) { push(y * W); push(y * W + W - 1); }
+  while (qh < qt) {
+    const q = queue[qh++];
+    const qx = q % W;
+    const qy = (q - qx) / W;
+    if (qx > 0) push(q - 1);
+    if (qx < W - 1) push(q + 1);
+    if (qy > 0) push(q - W);
+    if (qy < H - 1) push(q + W);
+  }
+  // Label remaining (enclosed) light pixels into connected components.
+  const visited = new Uint8Array(N);
   const points = [];
+  const q2 = queue; // reuse
   for (let p = 0; p < N; p++) {
-    if (!mask[p] || visited[p]) continue;
-    let qh = 0;
-    let qt = 0;
-    queue[qt++] = p;
+    if (!light[p] || reached[p] || visited[p]) continue;
+    let h2 = 0;
+    let t2 = 0;
+    q2[t2++] = p;
     visited[p] = 1;
     let sx = 0;
     let sy = 0;
@@ -184,8 +209,8 @@ function detectPoints(canvas, opts = {}) {
     let mnY = H;
     let mxX = 0;
     let mxY = 0;
-    while (qh < qt) {
-      const q = queue[qh++];
+    while (h2 < t2) {
+      const q = q2[h2++];
       const qx = q % W;
       const qy = (q - qx) / W;
       sx += qx;
@@ -195,18 +220,21 @@ function detectPoints(canvas, opts = {}) {
       if (qy < mnY) mnY = qy;
       if (qx > mxX) mxX = qx;
       if (qy > mxY) mxY = qy;
-      if (qx > 0) { const n = q - 1; if (mask[n] && !visited[n]) { visited[n] = 1; queue[qt++] = n; } }
-      if (qx < W - 1) { const n = q + 1; if (mask[n] && !visited[n]) { visited[n] = 1; queue[qt++] = n; } }
-      if (qy > 0) { const n = q - W; if (mask[n] && !visited[n]) { visited[n] = 1; queue[qt++] = n; } }
-      if (qy < H - 1) { const n = q + W; if (mask[n] && !visited[n]) { visited[n] = 1; queue[qt++] = n; } }
+      if (qx > 0) { const n = q - 1; if (light[n] && !reached[n] && !visited[n]) { visited[n] = 1; q2[t2++] = n; } }
+      if (qx < W - 1) { const n = q + 1; if (light[n] && !reached[n] && !visited[n]) { visited[n] = 1; q2[t2++] = n; } }
+      if (qy > 0) { const n = q - W; if (light[n] && !reached[n] && !visited[n]) { visited[n] = 1; q2[t2++] = n; } }
+      if (qy < H - 1) { const n = q + W; if (light[n] && !reached[n] && !visited[n]) { visited[n] = 1; q2[t2++] = n; } }
     }
     if (cnt < minBlob || cnt > maxBlob) continue;
     const w = mxX - mnX + 1;
     const h = mxY - mnY + 1;
     const ar = w / h;
     if (ar < arMin || ar > arMax) continue;
-    if (Math.max(w, h) > 40) continue; // discard long strokes / labels
-    points.push({ x: sx / cnt, y: sy / cnt, size: cnt });
+    const bboxLong = Math.max(w, h);
+    if (bboxLong < minBboxPx || bboxLong > maxBboxPx) continue;
+    // Use the bbox center rather than the pixel centroid: the post-rivnut dot
+    // inside each circle skews the centroid otherwise.
+    points.push({ x: (mnX + mxX) / 2, y: (mnY + mxY) / 2, size: cnt, w, h });
   }
   return points;
 }
@@ -301,8 +329,68 @@ function estimateGrid(points) {
   return { spacing, angle };
 }
 
-// Group points into connected sections (within ~2.5× spacing), then within
-// each section cluster into rows and fit per-row offsets.
+// Build a single section from the subset of points inside a user-drawn
+// rectangle. Estimates grid (spacing, angle) from those points only, clusters
+// them into rows, and produces { x, y, angle, colGap, rowGap, rl, offsets,
+// levels } in image coordinates.
+function buildSectionFromRect(points, rect, opts = {}) {
+  const minX = Math.min(rect.x1, rect.x2);
+  const maxX = Math.max(rect.x1, rect.x2);
+  const minY = Math.min(rect.y1, rect.y2);
+  const maxY = Math.max(rect.y1, rect.y2);
+  const inside = points.filter((p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY);
+  if (inside.length < 4) return null;
+  const { spacing, angle } = estimateGrid(inside);
+  const cosNA = Math.cos(-angle);
+  const sinNA = Math.sin(-angle);
+  const rot = inside.map((p) => ({ rx: p.x * cosNA - p.y * sinNA, ry: p.x * sinNA + p.y * cosNA }));
+  rot.sort((a, b) => a.ry - b.ry);
+  const rowEps = spacing * 0.55;
+  const rowGroups = [];
+  let cur = [rot[0]];
+  for (let i = 1; i < rot.length; i++) {
+    if (rot[i].ry - cur[cur.length - 1].ry > rowEps) { rowGroups.push(cur); cur = [rot[i]]; }
+    else cur.push(rot[i]);
+  }
+  rowGroups.push(cur);
+  const colDs = [];
+  for (const row of rowGroups) {
+    row.sort((a, b) => a.rx - b.rx);
+    for (let i = 1; i < row.length; i++) colDs.push(row[i].rx - row[i - 1].rx);
+  }
+  colDs.sort((a, b) => a - b);
+  const colGap = colDs.length ? colDs[Math.floor(colDs.length * 0.3)] : spacing;
+  const rowCenters = rowGroups.map((r) => r.reduce((a, p) => a + p.ry, 0) / r.length);
+  let rowGap = spacing * 2;
+  if (rowCenters.length > 1) {
+    const gaps = [];
+    for (let i = 1; i < rowCenters.length; i++) gaps.push(rowCenters[i] - rowCenters[i - 1]);
+    gaps.sort((a, b) => a - b);
+    rowGap = gaps[Math.floor(gaps.length / 2)] || rowGap;
+  }
+  const minRx = Math.min(...rot.map((p) => p.rx));
+  const minRy = rowCenters[0];
+  const rl = [];
+  const offsets = [];
+  for (const row of rowGroups) {
+    const startCol = Math.round((row[0].rx - minRx) / colGap);
+    const endCol = Math.round((row[row.length - 1].rx - minRx) / colGap);
+    offsets.push(startCol);
+    rl.push(endCol - startCol + 1);
+  }
+  const total = rl.reduce((a, b) => a + b, 0);
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
+  const x = minRx * cosA - minRy * sinA;
+  const y = minRx * sinA + minRy * cosA;
+  return {
+    x, y, angle, colGap, rowGap, rl, offsets,
+    levels: new Array(total).fill(0),
+    pointCount: inside.length,
+  };
+}
+
+// (Retained but unused by the import flow now that sections are manual.)
 function clusterIntoSections(points, opts = {}) {
   if (!points.length) return { sections: [], spacing: 12, angle: 0 };
   const { spacing, angle } = estimateGrid(points);
@@ -884,19 +972,30 @@ const zoomBtnStyle = {
    ============================================================ */
 
 function ImportModal({ onClose, onAccept }) {
-  const [stage, setStage] = useState("upload"); // upload | tuning
+  const [stage, setStage] = useState("upload"); // upload | outline
   const [canvas, setCanvas] = useState(null);
   const [dataUrl, setDataUrl] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const [satMin, setSatMin] = useState(0.30);
-  const [minBlob, setMinBlob] = useState(4);
-  const [maxBlob, setMaxBlob] = useState(400);
+  const [darkV, setDarkV] = useState(0.40);
+  const [minBlob, setMinBlob] = useState(30);
+  const [maxBlob, setMaxBlob] = useState(2000);
   const [points, setPoints] = useState([]);
-  const [sections, setSections] = useState([]);
-  const [spacing, setSpacing] = useState(12);
-  const [angle, setAngle] = useState(0);
-  const previewRef = useRef(null);
+  const [rects, setRects] = useState([]); // user-drawn axis-aligned rects
+  const [draft, setDraft] = useState(null); // in-progress rect while dragging
+  const [zoom, setZoom] = useState(1);
+  const overlayRef = useRef(null);
+  const imgRef = useRef(null);
+  const surfaceRef = useRef(null);
+
+  // After the drawing loads, fit it to the available pane width.
+  useEffect(() => {
+    if (stage !== "outline" || !canvas || !surfaceRef.current) return;
+    const w = surfaceRef.current.clientWidth - 4;
+    if (w > 0 && canvas.width > w) {
+      setZoom(w / canvas.width);
+    }
+  }, [stage, canvas]);
 
   const handleFile = async (file) => {
     if (!file) return;
@@ -906,9 +1005,8 @@ function ImportModal({ onClose, onAccept }) {
       const c = await fileToCanvas(file);
       setCanvas(c);
       setDataUrl(c.toDataURL());
-      setStage("tuning");
-      // initial detection
-      requestAnimationFrame(() => runDetect(c, satMin, minBlob, maxBlob));
+      setStage("outline");
+      requestAnimationFrame(() => runDetect(c, darkV, minBlob, maxBlob));
     } catch (e) {
       console.error(e);
       setErr(e?.message || "Failed to load file");
@@ -917,17 +1015,13 @@ function ImportModal({ onClose, onAccept }) {
     }
   };
 
-  const runDetect = (c, sMin, mnB, mxB) => {
+  const runDetect = (c, dv, mnB, mxB) => {
     if (!c) return;
     setBusy(true);
     setTimeout(() => {
       try {
-        const pts = detectPoints(c, { satMin: sMin, minBlob: mnB, maxBlob: mxB });
-        const { sections: secs, spacing: sp, angle: ang } = clusterIntoSections(pts);
+        const pts = detectPoints(c, { darkV: dv, minBlob: mnB, maxBlob: mxB });
         setPoints(pts);
-        setSections(secs);
-        setSpacing(sp);
-        setAngle(ang);
       } catch (e) {
         console.error(e);
         setErr(e?.message || "Detection failed");
@@ -937,63 +1031,102 @@ function ImportModal({ onClose, onAccept }) {
     }, 30);
   };
 
-  const reDetect = () => runDetect(canvas, satMin, minBlob, maxBlob);
+  const reDetect = () => runDetect(canvas, darkV, minBlob, maxBlob);
+
+  // Redraw overlay (points + drawn rects + draft)
+  useEffect(() => {
+    if (stage !== "outline" || !overlayRef.current || !canvas) return;
+    const oc = overlayRef.current;
+    const ctx = oc.getContext("2d");
+    oc.width = canvas.width;
+    oc.height = canvas.height;
+    ctx.clearRect(0, 0, oc.width, oc.height);
+    ctx.fillStyle = "rgba(0,160,255,.75)";
+    const r = Math.max(1.5, Math.min(canvas.width, canvas.height) / 800);
+    for (const p of points) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const drawRect = (rc, color, label) => {
+      const x = Math.min(rc.x1, rc.x2);
+      const y = Math.min(rc.y1, rc.y2);
+      const w = Math.abs(rc.x2 - rc.x1);
+      const h = Math.abs(rc.y2 - rc.y1);
+      ctx.lineWidth = Math.max(2, canvas.width / 1200);
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color.replace(/[\d.]+\)$/, "0.10)");
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
+      if (label) {
+        ctx.fillStyle = color;
+        ctx.font = `bold ${Math.max(14, canvas.width / 100)}px sans-serif`;
+        ctx.fillText(label, x + 6, y + Math.max(18, canvas.width / 90));
+      }
+    };
+    rects.forEach((rc, i) => drawRect(rc, "rgba(232,106,16,.9)", rc.label || `N${i + 1}`));
+    if (draft) drawRect(draft, "rgba(22,163,74,.9)", "");
+  }, [stage, canvas, points, rects, draft]);
+
+  const clientToImage = (e) => {
+    const el = imgRef.current;
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const scale = canvas.width / r.width;
+    return {
+      x: (e.clientX - r.left) * scale,
+      y: (e.clientY - r.top) * scale,
+    };
+  };
+
+  const onSurfaceDown = (e) => {
+    if (!canvas) return;
+    if (e.button !== 0) return;
+    const p = clientToImage(e);
+    if (!p) return;
+    e.preventDefault();
+    setDraft({ x1: p.x, y1: p.y, x2: p.x, y2: p.y });
+  };
+  const onSurfaceMove = (e) => {
+    if (!draft) return;
+    const p = clientToImage(e);
+    if (!p) return;
+    setDraft({ ...draft, x2: p.x, y2: p.y });
+  };
+  const onSurfaceUp = () => {
+    if (!draft) return;
+    const w = Math.abs(draft.x2 - draft.x1);
+    const h = Math.abs(draft.y2 - draft.y1);
+    if (w > 10 && h > 10) {
+      setRects((r) => [...r, { ...draft, label: `N${r.length + 1}` }]);
+    }
+    setDraft(null);
+  };
+
+  const removeRect = (idx) => setRects((r) => r.filter((_, i) => i !== idx));
+  const clearRects = () => setRects([]);
+
+  const previewSections = useMemo(() => {
+    if (!points.length || !rects.length) return [];
+    const out = [];
+    rects.forEach((rc, i) => {
+      const sec = buildSectionFromRect(points, rc);
+      if (sec) {
+        out.push({ ...sec, label: rc.label || `N${i + 1}`, id: i + 1 });
+      }
+    });
+    return out;
+  }, [points, rects]);
 
   const accept = () => {
-    if (!sections.length) return;
+    if (!previewSections.length) return;
     onAccept({
-      sections,
+      sections: previewSections,
       bgUrl: dataUrl,
       bgWidth: canvas.width,
       bgHeight: canvas.height,
-      spacing,
-      angle,
     });
   };
-
-  // Preview overlay: draw detected points and section bounding boxes over the image
-  useEffect(() => {
-    if (stage !== "tuning" || !previewRef.current || !canvas) return;
-    const pc = previewRef.current;
-    const ctx = pc.getContext("2d");
-    pc.width = canvas.width;
-    pc.height = canvas.height;
-    ctx.clearRect(0, 0, pc.width, pc.height);
-    // points
-    ctx.fillStyle = "rgba(0,160,255,.85)";
-    for (const p of points) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // section outlines
-    ctx.strokeStyle = "rgba(232,106,16,.9)";
-    ctx.lineWidth = 2;
-    ctx.font = "bold 14px sans-serif";
-    ctx.fillStyle = "rgba(232,106,16,.95)";
-    for (const s of sections) {
-      const safeOff = s.offsets || s.rl.map(() => 0);
-      const minOff = Math.min(0, ...safeOff);
-      const maxRight = Math.max(...s.rl.map((l, i) => (safeOff[i] || 0) + l));
-      const w = (maxRight - minOff) * (s.colGap || 10);
-      const h = s.rl.length * (s.rowGap || 10);
-      const a = s.angle || 0;
-      const ca = Math.cos(a);
-      const sa = Math.sin(a);
-      const corners = [
-        [0, 0],
-        [w, 0],
-        [w, h],
-        [0, h],
-      ].map(([cx, cy]) => [s.x + cx * ca - cy * sa, s.y + cx * sa + cy * ca]);
-      ctx.beginPath();
-      ctx.moveTo(corners[0][0], corners[0][1]);
-      for (let i = 1; i < 4; i++) ctx.lineTo(corners[i][0], corners[i][1]);
-      ctx.closePath();
-      ctx.stroke();
-      ctx.fillText(s.label, corners[0][0] + 4, corners[0][1] - 4);
-    }
-  }, [stage, canvas, points, sections]);
 
   return (
     <div
@@ -1002,15 +1135,15 @@ function ImportModal({ onClose, onAccept }) {
         position: "fixed", inset: 0, zIndex: 1000,
         background: "rgba(0,0,0,.55)",
         display: "flex", alignItems: "center", justifyContent: "center",
-        padding: 24,
+        padding: 16,
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "#fff", borderRadius: 6, padding: 18,
-          width: "100%", maxWidth: 1100, maxHeight: "92vh",
-          display: "flex", flexDirection: "column", gap: 12,
+          background: "#fff", borderRadius: 6, padding: 14,
+          width: "100%", maxWidth: 1400, height: "94vh",
+          display: "flex", flexDirection: "column", gap: 10,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -1018,7 +1151,9 @@ function ImportModal({ onClose, onAccept }) {
             Import Drawing
           </h2>
           <span style={{ fontFamily: "var(--b)", fontSize: 11, color: "#888" }}>
-            Upload PDF or image · auto-detect points · clean up · accept
+            {stage === "upload"
+              ? "Upload PDF or image to begin"
+              : "Drag rectangles on the drawing to define each section. Every detected point inside the rectangle becomes a cell."}
           </span>
           <button
             onClick={onClose}
@@ -1053,54 +1188,115 @@ function ImportModal({ onClose, onAccept }) {
               Choose PDF or Image
             </label>
             <div style={{ marginTop: 12, fontSize: 11, opacity: .7 }}>
-              Drawings with colored dot markers work best.
+              Auto-detects every dark-outlined circular marker (any fill color).
             </div>
             {busy && <div style={{ marginTop: 12 }}>Loading…</div>}
             {err && <div style={{ marginTop: 12, color: "#c00" }}>{err}</div>}
           </div>
         )}
 
-        {stage === "tuning" && (
+        {stage === "outline" && (
           <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
             <div
+              ref={surfaceRef}
               style={{
                 flex: 1, overflow: "auto", border: "1px solid #e0ddd8",
-                borderRadius: 3, position: "relative", background: "#f6f4ef",
+                borderRadius: 3, background: "#f6f4ef", position: "relative",
+                cursor: "crosshair", userSelect: "none",
               }}
+              onPointerDown={onSurfaceDown}
+              onPointerMove={onSurfaceMove}
+              onPointerUp={onSurfaceUp}
+              onPointerLeave={onSurfaceUp}
             >
-              {dataUrl && (
-                <div style={{ position: "relative", display: "inline-block" }}>
-                  <img src={dataUrl} alt="src" style={{ display: "block", maxWidth: "none" }} />
+              {dataUrl && canvas && (
+                <div style={{ position: "relative", width: canvas.width * zoom, height: canvas.height * zoom }}>
+                  <img
+                    ref={imgRef}
+                    src={dataUrl}
+                    alt="src"
+                    style={{ display: "block", width: canvas.width * zoom, height: canvas.height * zoom, pointerEvents: "none", userSelect: "none" }}
+                    draggable={false}
+                  />
                   <canvas
-                    ref={previewRef}
-                    style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none" }}
+                    ref={overlayRef}
+                    style={{
+                      position: "absolute", left: 0, top: 0,
+                      width: canvas.width * zoom, height: canvas.height * zoom,
+                      pointerEvents: "none",
+                    }}
                   />
                 </div>
               )}
             </div>
-            <div style={{ width: 260, display: "flex", flexDirection: "column", gap: 10, fontFamily: "var(--b)", fontSize: 11 }}>
+            <div style={{ width: 280, display: "flex", flexDirection: "column", gap: 10, fontFamily: "var(--b)", fontSize: 11, overflowY: "auto" }}>
               <div style={{ background: "#f6f4ef", padding: 8, borderRadius: 4 }}>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>Detection</div>
-                <div>Points: <b>{points.length}</b></div>
-                <div>Sections: <b>{sections.length}</b></div>
-                <div>Est. spacing: <b>{spacing.toFixed(1)}px</b></div>
-                <div>Est. angle: <b>{((angle * 180) / Math.PI).toFixed(1)}°</b></div>
+                <div>Points found: <b>{points.length}</b></div>
+                <div>Sections drawn: <b>{rects.length}</b></div>
+                <div>Cells in sections: <b>{previewSections.reduce((a, s) => a + s.levels.length, 0)}</b></div>
               </div>
-              <Slider label="Saturation min" min={0.1} max={0.7} step={0.02} value={satMin} onChange={setSatMin} />
-              <Slider label="Min blob (px)" min={1} max={30} step={1} value={minBlob} onChange={(v) => setMinBlob(Math.round(v))} />
-              <Slider label="Max blob (px)" min={50} max={1500} step={10} value={maxBlob} onChange={(v) => setMaxBlob(Math.round(v))} />
-              <button
-                onClick={reDetect}
-                disabled={busy}
-                style={{
-                  padding: "8px 12px", borderRadius: 4,
-                  background: "#1a1a1a", color: "#fff", border: "none",
-                  cursor: busy ? "wait" : "pointer", fontWeight: 600,
-                  textTransform: "uppercase", letterSpacing: ".06em",
-                }}
-              >
-                {busy ? "Working…" : "Re-detect"}
-              </button>
+              <details>
+                <summary style={{ cursor: "pointer", fontWeight: 600 }}>Detection settings</summary>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                  <Slider label="Darkness threshold (V≤)" min={0.20} max={0.70} step={0.02} value={darkV} onChange={setDarkV} />
+                  <Slider label="Min blob (px)" min={5} max={300} step={1} value={minBlob} onChange={(v) => setMinBlob(Math.round(v))} />
+                  <Slider label="Max blob (px)" min={200} max={5000} step={20} value={maxBlob} onChange={(v) => setMaxBlob(Math.round(v))} />
+                  <button
+                    onClick={reDetect}
+                    disabled={busy}
+                    style={{
+                      padding: "6px 10px", borderRadius: 4,
+                      background: "#1a1a1a", color: "#fff", border: "none",
+                      cursor: busy ? "wait" : "pointer", fontWeight: 600,
+                      fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em",
+                    }}
+                  >
+                    {busy ? "Working…" : "Re-detect"}
+                  </button>
+                </div>
+              </details>
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <span style={{ fontWeight: 600 }}>Zoom</span>
+                <button onClick={() => setZoom((z) => Math.max(0.1, z - 0.1))} style={zoomBtnStyle}>−</button>
+                <span style={{ minWidth: 36, textAlign: "center" }}>{Math.round(zoom * 100)}%</span>
+                <button onClick={() => setZoom((z) => Math.min(3, z + 0.1))} style={zoomBtnStyle}>+</button>
+                <button onClick={() => setZoom(1)} style={{ ...zoomBtnStyle, fontSize: 9 }}>1:1</button>
+              </div>
+              <div style={{ background: "#f6f4ef", padding: 8, borderRadius: 4 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4, display: "flex", alignItems: "center" }}>
+                  Sections
+                  {rects.length > 0 && (
+                    <button onClick={clearRects} style={{ marginLeft: "auto", fontSize: 9, border: "1px solid #ccc", background: "#fff", padding: "2px 6px", borderRadius: 3, cursor: "pointer" }}>
+                      Clear all
+                    </button>
+                  )}
+                </div>
+                {rects.length === 0 && (
+                  <div style={{ fontSize: 10, color: "#888", lineHeight: 1.4 }}>
+                    Drag a rectangle on the drawing to add a section. Repeat for each section in the layout.
+                  </div>
+                )}
+                {rects.map((rc, i) => {
+                  const sec = previewSections.find((s) => s.id === i + 1);
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 0", borderBottom: "1px solid #eee" }}>
+                      <input
+                        value={rc.label}
+                        onChange={(e) => setRects((rs) => rs.map((r, ix) => ix === i ? { ...r, label: e.target.value } : r))}
+                        style={{ width: 60, padding: "1px 4px", fontSize: 10, fontFamily: "var(--d)", border: "1px solid #ddd", borderRadius: 2 }}
+                      />
+                      <span style={{ fontSize: 9, color: "#666" }}>
+                        {sec ? `${sec.levels.length} cells · ${sec.rl.length} rows` : "—"}
+                      </span>
+                      <button
+                        onClick={() => removeRect(i)}
+                        style={{ marginLeft: "auto", width: 16, height: 16, borderRadius: 8, background: "#dc2626", color: "#fff", border: "none", cursor: "pointer", fontSize: 9, fontWeight: 700 }}
+                      >✕</button>
+                    </div>
+                  );
+                })}
+              </div>
               {err && <div style={{ color: "#c00" }}>{err}</div>}
               <div style={{ flex: 1 }} />
               <div style={{ display: "flex", gap: 6 }}>
@@ -1114,21 +1310,16 @@ function ImportModal({ onClose, onAccept }) {
                 >Cancel</button>
                 <button
                   onClick={accept}
-                  disabled={!sections.length}
+                  disabled={!previewSections.length}
                   style={{
                     flex: 1, padding: "8px 12px", borderRadius: 4,
-                    background: sections.length ? "#16a34a" : "#aaa",
+                    background: previewSections.length ? "#16a34a" : "#aaa",
                     color: "#fff", border: "none",
-                    cursor: sections.length ? "pointer" : "not-allowed",
+                    cursor: previewSections.length ? "pointer" : "not-allowed",
                     fontWeight: 700,
                     textTransform: "uppercase", letterSpacing: ".06em",
                   }}
-                >Accept</button>
-              </div>
-              <div style={{ fontSize: 10, color: "#888", lineHeight: 1.4 }}>
-                After accept, sections are positioned on the canvas at their
-                detected coordinates. Use “Move” mode to nudge them, or “Edit
-                Grid” to add/remove rows or delete sections.
+                >Accept ({previewSections.length})</button>
               </div>
             </div>
           </div>
