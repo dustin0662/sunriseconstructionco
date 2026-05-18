@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Site Map — Preview</title>
+    <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+    <style>
+      html, body { margin: 0; padding: 0; background: #fafafa; font-family: system-ui, sans-serif; }
+      #status { padding: 16px; color: #666; font-size: 13px; }
+      #err { padding: 16px; color: #c00; white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="status">Loading…</div>
+    <div id="err"></div>
+    <div id="root"></div>
+    <script>
+      (async () => {
+        const status = document.getElementById("status");
+        const errEl = document.getElementById("err");
+        try {
+          // Minimal window.storage shim backed by localStorage so the
+          // component's persistence layer works in the preview.
+          window.storage = {
+            get: async (key) => {
+              const v = localStorage.getItem(key);
+              return v === null ? null : { value: v };
+            },
+            set: async (key, value) => { localStorage.setItem(key, value); },
+          };
+
+          status.textContent = "Fetching site_map.jsx…";
+          const src = await fetch("./site_map.jsx", { cache: "no-store" }).then((r) => {
+            if (!r.ok) throw new Error("Could not fetch site_map.jsx: HTTP " + r.status);
+            return r.text();
+          });
+
+          status.textContent = "Transpiling (in-browser Babel, ~1s)…";
+          // Rewrite the React ESM import to destructure from the global React
+          // bundle, and drop the `export default` so the function lives in the
+          // scope we eval into.
+          const patched = src
+            .replace(
+              /^\s*import\s*\{([^}]+)\}\s*from\s*["']react["'];?\s*$/m,
+              (_m, names) => `const { ${names.trim()} } = React;`
+            )
+            .replace(/^\s*export\s+default\s+function\s+SiteMap/m, "function SiteMap");
+
+          const out = Babel.transform(patched, {
+            presets: [["react", { runtime: "classic" }]],
+            sourceType: "script",
+          }).code;
+
+          status.textContent = "Mounting…";
+          const factory = new Function("React", out + "\n;return SiteMap;");
+          const SiteMap = factory(window.React);
+          const root = ReactDOM.createRoot(document.getElementById("root"));
+          root.render(React.createElement(SiteMap));
+          status.remove();
+        } catch (e) {
+          status.remove();
+          errEl.textContent = "Preview failed:\n\n" + (e && e.stack ? e.stack : String(e));
+          console.error(e);
+        }
+      })();
+    </script>
+  </body>
+</html>
