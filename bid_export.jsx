@@ -1,0 +1,759 @@
+// bid_export.jsx
+// Self-contained export module for the Sun Rise precon bid tool.
+//
+// Provides two client/internal deliverables for any bid in the `precon_bids`
+// shape:
+//   - exportBidProposal(bid)   -> branded client-facing proposal (PDF via print)
+//   - exportExecutionPlan(bid) -> internal project execution plan (PDF via print)
+//
+// Default export <BidExportButtons bid={bid} /> renders both buttons.
+//
+// The bid math is ported 1:1 from the production bid tool so numbers match
+// exactly even when this module is used outside that tool. Pass a precomputed
+// results object as the 2nd arg to computeBid-consumers to skip recomputation.
+
+import { useMemo } from "react";
+
+/* ----------------------------------------------------------------------------
+   Branding (Sun Rise Construction and Development LLC)
+---------------------------------------------------------------------------- */
+
+export const SRC = {
+  legalName: "Sun Rise Construction and Development LLC",
+  shortName: "Sun Rise Construction & Development",
+  rep: "Kaleb LeBaron",
+  repTitle: "Business Development Manager",
+  phone: "+1 (619) 870-4491",
+  email: "Kaleb.LeBaron@sunriseconstructionco.com",
+  address: "12856 N Hwy 183 Ste B PMB 2011, Austin, TX 78750",
+  web: "sunriseconstructionco.com",
+  tagline: "We Dominate Solar",
+};
+
+const BRAND = {
+  orange: "#F97316",
+  orangeDeep: "#d45808",
+  ink: "#0a0a14",
+  ink2: "#10101e",
+  navy: "#163050",
+  navy2: "#234e80",
+  cream: "#F5F0EB",
+  paper: "#ffffff",
+  grayText: "#555",
+  line: "#e3ddd4",
+};
+
+// SRC logo (sun + solar panel "SRC" mark), inlined so the module is portable.
+const SRC_LOGO = "data:image/webp;base64,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";
+
+/* ----------------------------------------------------------------------------
+   Bid math (ported from the production tool)
+---------------------------------------------------------------------------- */
+
+export const DEFAULT_BID = {
+  projectName: "", projectLocation: "", clientName: "", clientContact: "", bidDate: "",
+  systemSizeMW: 5, milesFromHQ: 500, workdaysInWeek: 5, workHoursPerDay: 10,
+  apprenticeReqPct: 0.15, perDiem: 125, perDiemPct: 1, wageType: "Union", pwMultiplier: 1,
+  includeHotelPerDiem: true, status: "Draft",
+  adminRate: 30, generalLaborRate: 25.2, generalLaborFringe: 9.85,
+  telehandlerOpRate: 34.73, telehandlerOpFringe: 12.12,
+  pileDriverOpRate: 38.61, pileDriverOpFringe: 12.18,
+  skidSteerOpRate: 34.73, skidSteerOpFringe: 12.12,
+  ficaSS: 0.062, medical: 0.0145, futa: 0.06, suta: 0.05, workersComp: 0.09,
+  umbrella: 0.01, genLiability: 0.01, payrollService: 0.01,
+  pileDriverEquipDaily: 734, skidSteerEquipDaily: 145, telehandlerEquipDaily: 175,
+  companyTruckEquipDaily: 67, pileDriverGalHr: 2, skidSteerGalHr: 3.2,
+  telehandlerGalHr: 1.5, companyTruckGalHr: 1.55, utvGalHr: 1, fuelEfficiency: 0.8,
+  dieselPerGallon: 5.089, rackingPiles: 2000, inverterPiles: 0, cabPiles: 10,
+  combinerBoxPiles: 20, loadBreakPiles: 0, estDriveTime: 3, estTransitionTime: 3,
+  pileEfficiency: 1.1, numExcavators: 2, pileSkidSteerOps: 1, pileGroundMan: 2,
+  pileAdditionalLaborers: 5, moduleCount: 10000, moduleWidth: 47.88,
+  calculateByModules: true, manualLinearFeet: 40000, rackingLfPerHourPerMan: 17,
+  rackingEfficiency: 1, rackingTotalWorkers: 20, rackingGeneralLabor: 8,
+  rackingGeneralLaborApp: 7, rackingTelehandlerOps: 1, rackingSkidSteerOps: 4,
+  modulesPerHourPerMan: 13, moduleEfficiency: 1, moduleTotalWorkers: 12,
+  moduleGeneralLabor: 4, moduleGeneralLaborApp: 5, moduleSkidSteerOps: 3,
+  qcPileMultiplier: 0.085, qcRackMultiplier: 0.009, qcModuleMultiplier: 0.008,
+  qcNumMen: 3, qcApprentices: 1, matHandlCrewSize: 4, matHandlAdmin: 1,
+  matHandlGeneralLabor: 1, matHandlTeleOps: 1, matHandlSkidOps: 1,
+  gcCartsRate: 52, gcCartsQty: 5, gcMaintenanceRate: 2000, gcSanitaryRate: 4,
+  gcSanitaryQty: 4, gcSafetyRate: 0.75, gcSiteOfficeRate: 2500, gcSmallToolsRate: 2.5,
+  gcFuelDeliveryRate: 1000, gcPileSurveyRate: 6, gcAddlMobRate: 1000,
+  gcTwistBarsRate: 200, gcTwistBarsQty: 2, gcPayrollRate: 137.5, gcPayrollQty: 6,
+  mgmtBurdenMultiplier: 1.3, mgmtPerDiem: 135, mgmtPctOnSite: 0.89,
+  mgmtSuperRate: 57.69, mgmtSuperQty: 1, mgmtSuperPerDiem: true,
+  mgmtForemanRate: 54.68, mgmtForemanQty: 1, mgmtForemanPerDiem: true,
+  mgmtSafetyRate: 30, mgmtSafetyQty: 1, mgmtSafetyPerDiem: true,
+  mobMPH: 40, mobCompanyTruckRate: 6.7, mobCompanyTruckQty: 1, mobTrailerRate: 0.5,
+  mobTrailerQty: 1, mobRentalEquipRate: 500, mobRentalEquipQty: 19, mobExtraMobs: 1,
+  wasteDumpsterQty: 6, wasteDumpsterEmptied: 1, wasteDumpsterRate: 1000,
+  contingencyPct: 0.03, markupPct: 0.2, bondPct: 0.02,
+};
+
+// Day-rate calculator (Union vs Prevailing Wage), ported from the tool.
+function dayRate(base, fringe, payrollTaxPct, workHoursPerDay, wageType, pwMultiplier) {
+  const OT = workHoursPerDay > 8 ? workHoursPerDay - 8 : 0;
+  const burden = base * payrollTaxPct;
+  if (wageType === "Prevailing Wage") {
+    const r = (base + fringe) * pwMultiplier;
+    return r * 8 + r * 1.5 * OT;
+  }
+  return (base + fringe + burden) * 8 + ((base + burden) * 1.5 + fringe) * OT;
+}
+
+// Full bid computation. Returns the same field set as the production tool.
+export function computeBid(n) {
+  const t = {};
+  t.systemKW = n.systemSizeMW * 1e3;
+  t.systemWDC = n.systemSizeMW * 1e6;
+  t.payrollTaxPct = n.ficaSS + n.medical + n.futa + n.suta + n.workersComp + n.umbrella + n.genLiability + n.payrollService;
+  [
+    { key: "admin", base: n.adminRate, fringe: 0 },
+    { key: "generalLabor", base: n.generalLaborRate, fringe: n.generalLaborFringe },
+    { key: "generalLaborApp", base: n.generalLaborRate, fringe: n.generalLaborFringe },
+    { key: "telehandlerOp", base: n.telehandlerOpRate, fringe: n.telehandlerOpFringe },
+    { key: "telehandlerOpApp", base: n.telehandlerOpRate, fringe: n.telehandlerOpFringe },
+    { key: "pileDriverOp", base: n.pileDriverOpRate, fringe: n.pileDriverOpFringe },
+    { key: "pileDriverOpApp", base: n.pileDriverOpRate, fringe: n.pileDriverOpFringe },
+    { key: "skidSteerOp", base: n.skidSteerOpRate, fringe: n.skidSteerOpFringe },
+    { key: "skidSteerOpApp", base: n.skidSteerOpRate, fringe: n.skidSteerOpFringe },
+  ].forEach(({ key, base, fringe }) => {
+    t[`${key}DayRate`] = dayRate(base, fringe, t.payrollTaxPct, n.workHoursPerDay, n.wageType, n.pwMultiplier);
+    t[`${key}HourlyRate`] = t[`${key}DayRate`] / n.workHoursPerDay;
+  });
+  const fe = n.fuelEfficiency;
+  t.pileDriverFuelPerDay = n.pileDriverGalHr * n.workHoursPerDay * fe * n.dieselPerGallon;
+  t.skidSteerFuelPerDay = n.skidSteerGalHr * n.workHoursPerDay * fe * n.dieselPerGallon;
+  t.telehandlerFuelPerDay = n.telehandlerGalHr * n.workHoursPerDay * fe * n.dieselPerGallon;
+  t.companyTruckFuelPerDay = n.companyTruckGalHr * n.workHoursPerDay * fe * n.dieselPerGallon;
+  t.utvFuelPerDay = n.utvGalHr * n.workHoursPerDay * fe * n.dieselPerGallon;
+  t.totalPiles = n.rackingPiles + n.inverterPiles + n.cabPiles + n.combinerBoxPiles + n.loadBreakPiles;
+  const cyc = n.estDriveTime + n.estTransitionTime;
+  t.pileManhours = Math.ceil(cyc * t.totalPiles / 60);
+  t.pileAdjustedManhours = Math.round(t.pileManhours / n.pileEfficiency);
+  t.pileDaysToComplete = Math.max(1, Math.ceil(Math.ceil(t.pileAdjustedManhours / n.numExcavators) / n.workHoursPerDay));
+  t.pilesPerDayPerMachine = t.totalPiles / t.pileDaysToComplete;
+  t.pileCalendarDays = Math.ceil(t.pileDaysToComplete * 7 / n.workdaysInWeek);
+  t.pileTotalStaff = n.pileSkidSteerOps + n.pileGroundMan + n.pileAdditionalLaborers + n.numExcavators + Math.round(n.pileAdditionalLaborers * n.apprenticeReqPct);
+  t.pileTotalManHours = t.pileTotalStaff * t.pileDaysToComplete * n.workHoursPerDay;
+  const pileJourney = n.pileAdditionalLaborers + n.pileGroundMan - Math.floor((n.pileAdditionalLaborers + n.pileGroundMan) * n.apprenticeReqPct);
+  const pileApp = Math.ceil((n.pileAdditionalLaborers + n.pileGroundMan) * n.apprenticeReqPct);
+  t.pileLaborCost = pileJourney * t.generalLaborDayRate * t.pileDaysToComplete + pileApp * t.generalLaborAppDayRate * t.pileDaysToComplete + n.numExcavators * t.pileDriverOpDayRate * t.pileDaysToComplete + n.pileSkidSteerOps * t.skidSteerOpDayRate * t.pileDaysToComplete;
+  t.pilePerDiemCost = n.includeHotelPerDiem ? t.pileTotalStaff * n.perDiem * n.perDiemPct * t.pileCalendarDays : 0;
+  t.pileEquipRental = n.numExcavators * n.pileDriverEquipDaily * t.pileCalendarDays + n.pileSkidSteerOps * n.skidSteerEquipDaily * t.pileCalendarDays;
+  t.pileFuelCost = n.numExcavators * t.pileDriverFuelPerDay * t.pileDaysToComplete + n.pileSkidSteerOps * t.skidSteerFuelPerDay * t.pileDaysToComplete;
+  t.pileScopeTotal = t.pileLaborCost + t.pilePerDiemCost + t.pileEquipRental + t.pileFuelCost;
+  t.linearFeetRacking = n.calculateByModules ? Math.ceil((n.moduleWidth + 1) * n.moduleCount / 12) : n.manualLinearFeet;
+  t.rackingManhours = Math.ceil(t.linearFeetRacking / n.rackingLfPerHourPerMan);
+  t.rackingAdjustedManhours = Math.ceil(t.rackingManhours / n.rackingEfficiency);
+  t.rackingDaysToComplete = Math.max(1, Math.ceil(Math.ceil(t.rackingAdjustedManhours / n.rackingTotalWorkers) / n.workHoursPerDay));
+  t.rackingCalendarDays = Math.ceil(t.rackingDaysToComplete * 7 / n.workdaysInWeek);
+  t.rackingManHours = n.rackingTotalWorkers * t.rackingDaysToComplete * n.workHoursPerDay;
+  t.rackingLaborCost = n.rackingGeneralLabor * t.generalLaborDayRate * t.rackingDaysToComplete + n.rackingGeneralLaborApp * t.generalLaborAppDayRate * t.rackingDaysToComplete + n.rackingTelehandlerOps * t.telehandlerOpDayRate * t.rackingDaysToComplete + n.rackingSkidSteerOps * t.skidSteerOpDayRate * t.rackingDaysToComplete;
+  t.rackingPerDiemCost = n.includeHotelPerDiem ? n.rackingTotalWorkers * n.perDiem * n.perDiemPct * t.rackingCalendarDays : 0;
+  t.rackingEquipRental = n.rackingSkidSteerOps * n.skidSteerEquipDaily * t.rackingCalendarDays + n.rackingTelehandlerOps * n.telehandlerEquipDaily * t.rackingCalendarDays + 1 * n.companyTruckEquipDaily * t.rackingCalendarDays;
+  t.rackingFuelCost = n.rackingSkidSteerOps * t.skidSteerFuelPerDay * t.rackingDaysToComplete + n.rackingTelehandlerOps * t.telehandlerFuelPerDay * t.rackingDaysToComplete + 1 * t.companyTruckFuelPerDay * t.rackingDaysToComplete;
+  t.rackingScopeTotal = t.rackingLaborCost + t.rackingPerDiemCost + t.rackingEquipRental + t.rackingFuelCost;
+  t.moduleCount = n.moduleCount;
+  t.moduleManhours = Math.ceil(t.moduleCount / n.modulesPerHourPerMan);
+  t.moduleAdjustedManhours = Math.ceil(t.moduleManhours / n.moduleEfficiency);
+  t.moduleDaysToComplete = Math.max(1, Math.ceil(Math.ceil(t.moduleAdjustedManhours / n.moduleTotalWorkers) / n.workHoursPerDay));
+  t.moduleCalendarDays = Math.ceil(t.moduleDaysToComplete * 7 / n.workdaysInWeek);
+  t.moduleManHours = n.moduleTotalWorkers * t.moduleDaysToComplete * n.workHoursPerDay;
+  t.moduleLaborCost = n.moduleGeneralLabor * t.generalLaborDayRate * t.moduleDaysToComplete + n.moduleGeneralLaborApp * t.generalLaborAppDayRate * t.moduleDaysToComplete + n.moduleSkidSteerOps * t.skidSteerOpDayRate * t.moduleDaysToComplete;
+  t.modulePerDiemCost = n.includeHotelPerDiem ? n.moduleTotalWorkers * n.perDiem * n.perDiemPct * t.moduleCalendarDays : 0;
+  t.moduleEquipRental = n.moduleSkidSteerOps * n.skidSteerEquipDaily * t.moduleCalendarDays;
+  t.moduleFuelCost = n.moduleSkidSteerOps * t.skidSteerFuelPerDay * t.moduleDaysToComplete;
+  t.moduleScopeTotal = t.moduleLaborCost + t.modulePerDiemCost + t.moduleEquipRental + t.moduleFuelCost;
+  t.qcPileHours = Math.ceil(n.qcPileMultiplier * t.totalPiles);
+  t.qcRackingHours = Math.ceil(n.qcRackMultiplier * t.linearFeetRacking);
+  t.qcModuleHours = Math.ceil(n.qcModuleMultiplier * t.moduleCount);
+  t.qcTotalHours = t.qcPileHours + t.qcRackingHours + t.qcModuleHours;
+  t.qcWorkdays = Math.ceil(Math.ceil(t.qcTotalHours / n.qcNumMen) / n.workHoursPerDay);
+  t.qcCalendarDays = Math.ceil(t.qcWorkdays * 7 / n.workdaysInWeek);
+  t.qcManHours = n.qcNumMen * t.qcWorkdays * n.workHoursPerDay;
+  const qcJourney = n.qcNumMen - n.qcApprentices;
+  t.qcLaborCost = qcJourney * t.generalLaborDayRate * t.qcWorkdays + n.qcApprentices * t.generalLaborDayRate * t.qcWorkdays;
+  t.qcPerDiemCost = n.includeHotelPerDiem ? n.qcNumMen * n.perDiem * n.perDiemPct * t.qcCalendarDays : 0;
+  t.qcScopeTotal = t.qcLaborCost + t.qcPerDiemCost;
+  t.matHandlWorkDays = t.pileDaysToComplete + 3;
+  t.matHandlCalendarDays = Math.ceil(t.matHandlWorkDays * 7 / n.workdaysInWeek);
+  t.matHandlManHours = n.matHandlCrewSize * t.matHandlWorkDays * n.workHoursPerDay;
+  t.matHandlLaborCost = n.matHandlAdmin * t.adminDayRate * t.matHandlWorkDays + n.matHandlGeneralLabor * t.generalLaborHourlyRate * t.matHandlWorkDays * n.workHoursPerDay + n.matHandlTeleOps * t.telehandlerOpHourlyRate * t.matHandlWorkDays * n.workHoursPerDay + n.matHandlSkidOps * t.skidSteerOpHourlyRate * t.matHandlWorkDays * n.workHoursPerDay;
+  t.matHandlPerDiemCost = n.includeHotelPerDiem ? n.matHandlCrewSize * n.perDiem * n.perDiemPct * t.matHandlCalendarDays : 0;
+  t.matHandlEquipRental = n.matHandlSkidOps * n.skidSteerEquipDaily * t.matHandlCalendarDays + n.matHandlTeleOps * n.telehandlerEquipDaily * t.matHandlCalendarDays;
+  t.matHandlFuelCost = n.matHandlSkidOps * t.skidSteerFuelPerDay * t.matHandlWorkDays + n.matHandlTeleOps * t.telehandlerFuelPerDay * t.matHandlWorkDays;
+  t.matHandlScopeTotal = t.matHandlLaborCost + t.matHandlPerDiemCost + t.matHandlEquipRental + t.matHandlFuelCost;
+  t.totalCalendarDays = t.pileCalendarDays + t.rackingCalendarDays + t.moduleCalendarDays + 6;
+  t.totalWorkDays = t.pileDaysToComplete + t.rackingDaysToComplete + t.moduleDaysToComplete + 4;
+  t.totalMonths = t.totalCalendarDays / 30.44;
+  t.totalManHoursAll = t.pileTotalManHours + t.rackingManHours + t.moduleManHours + t.qcManHours + t.matHandlManHours;
+  t.cartsUtvCost = n.gcCartsRate * n.gcCartsQty * t.totalCalendarDays;
+  t.cartsUtvFuelCost = t.utvFuelPerDay * n.gcCartsQty * t.totalWorkDays;
+  t.maintenanceCost = n.gcMaintenanceRate * t.totalMonths;
+  t.sanitaryCost = n.gcSanitaryRate * n.gcSanitaryQty * t.totalCalendarDays;
+  t.safetyCost = n.gcSafetyRate * t.totalManHoursAll;
+  t.siteOfficeCost = n.gcSiteOfficeRate * t.totalMonths;
+  t.smallToolsCost = n.gcSmallToolsRate * t.totalManHoursAll;
+  t.fuelDeliveryCost = n.gcFuelDeliveryRate;
+  t.pileSurveyCost = n.gcPileSurveyRate * t.totalPiles;
+  t.addlMobSurveyCost = n.gcAddlMobRate;
+  t.twistBarsCost = n.gcTwistBarsRate * n.gcTwistBarsQty;
+  t.payrollCost = n.gcPayrollRate * n.gcPayrollQty * t.totalWorkDays;
+  t.gcTotalCost = t.cartsUtvCost + t.cartsUtvFuelCost + t.maintenanceCost + t.sanitaryCost + t.safetyCost + t.siteOfficeCost + t.smallToolsCost + t.fuelDeliveryCost + t.pileSurveyCost + t.addlMobSurveyCost + t.twistBarsCost + t.payrollCost;
+  const mgmt = (rate, qty, calDays, pct, _unused, perDiem) => {
+    if (qty === 0) return 0;
+    const burdened = rate * n.mgmtBurdenMultiplier;
+    const days = Math.ceil(calDays * pct);
+    const hrs = 8 + (n.workHoursPerDay - 8) * 1.5;
+    const pd = perDiem ? calDays * pct * n.mgmtPerDiem : 0;
+    return burdened * qty * days * hrs + pd;
+  };
+  t.mgmtSuperCost = mgmt(n.mgmtSuperRate, n.mgmtSuperQty, t.totalCalendarDays, n.mgmtPctOnSite, false, n.mgmtSuperPerDiem);
+  t.mgmtForemanCost = mgmt(n.mgmtForemanRate, n.mgmtForemanQty, t.totalCalendarDays, n.mgmtPctOnSite, false, n.mgmtForemanPerDiem);
+  t.mgmtSafetyCost = mgmt(n.mgmtSafetyRate, n.mgmtSafetyQty, t.totalCalendarDays, n.mgmtPctOnSite, false, n.mgmtSafetyPerDiem);
+  t.mgmtTotalCost = t.mgmtSuperCost + t.mgmtForemanCost + t.mgmtSafetyCost;
+  t.mobCompanyTruckCost = n.mobCompanyTruckRate * n.mobCompanyTruckQty * (n.milesFromHQ / n.mobMPH);
+  t.mobTrailerCost = n.mobTrailerRate * n.mobTrailerQty * (n.milesFromHQ * 2);
+  t.mobRentalEquipCost = n.mobRentalEquipRate * n.mobRentalEquipQty * (n.mobExtraMobs + 1);
+  t.mobLaborCost = t.generalLaborHourlyRate * (n.milesFromHQ / n.mobMPH);
+  t.mobPerDiemCost = n.perDiem * 3;
+  t.mobTotalCost = t.mobCompanyTruckCost + t.mobTrailerCost + t.mobRentalEquipCost + t.mobLaborCost + t.mobPerDiemCost;
+  t.wasteTotal = n.wasteDumpsterQty * n.wasteDumpsterEmptied * n.wasteDumpsterRate * 2;
+  t.totalFuelCost = t.pileFuelCost + t.rackingFuelCost + t.moduleFuelCost + t.matHandlFuelCost + t.cartsUtvFuelCost;
+  t.subtotalCost = t.gcTotalCost + t.mgmtTotalCost + t.mobTotalCost + t.wasteTotal + t.matHandlScopeTotal + t.pileScopeTotal + t.qcScopeTotal + t.rackingScopeTotal + t.moduleScopeTotal;
+  t.contingencyAmt = t.subtotalCost * n.contingencyPct;
+  t.subtotalWithContingency = t.subtotalCost + t.contingencyAmt;
+  t.markupAmt = t.subtotalWithContingency * n.markupPct / (1 - n.markupPct);
+  t.preBondTotal = t.subtotalWithContingency + t.markupAmt;
+  t.bondAmt = t.preBondTotal * n.bondPct;
+  t.postBondTotal = t.preBondTotal + t.bondAmt;
+  t.dollarPerWatt = t.preBondTotal / t.systemWDC;
+  t.dollarPerWattWithBond = t.postBondTotal / t.systemWDC;
+  t.totalApprenticeHours = pileApp * t.pileDaysToComplete * n.workHoursPerDay + n.rackingGeneralLaborApp * t.rackingDaysToComplete * n.workHoursPerDay + n.moduleGeneralLaborApp * t.moduleDaysToComplete * n.workHoursPerDay + n.qcApprentices * t.qcWorkdays * n.workHoursPerDay;
+  t.apprenticePct = t.totalManHoursAll > 0 ? t.totalApprenticeHours / t.totalManHoursAll : 0;
+  t.apprenticeMet = t.apprenticePct >= n.apprenticeReqPct;
+  t.manHoursPerMW = t.totalManHoursAll / n.systemSizeMW;
+  return t;
+}
+
+/* ----------------------------------------------------------------------------
+   Formatting helpers
+---------------------------------------------------------------------------- */
+
+const money = (v) => "$" + Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money0 = (v) => "$" + Number(v || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
+const num = (v, d = 0) => Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const pct = (v) => (Number(v || 0) * 100).toFixed(1) + "%";
+const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const titleDate = () => new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+const bidNo = (bid) => "SRC-" + (esc(bid.projectName || "BID").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8) || "BID") + "-" + (new Date().getFullYear());
+
+/* ----------------------------------------------------------------------------
+   Shared document chrome
+---------------------------------------------------------------------------- */
+
+function docHead(title) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+  <title>${esc(title)}</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@400;500;600;700&display=swap');
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html,body { font-family:'Barlow',system-ui,sans-serif; color:#1a1a1a; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .page { position:relative; width:8.5in; min-height:11in; padding:0.6in 0.7in 0.95in; page-break-after:always; overflow:hidden; background:#fff; }
+    .page:last-child { page-break-after:auto; }
+    h1,h2,h3,.ops { font-family:'Black Ops One',sans-serif; font-weight:400; letter-spacing:.02em; }
+    .accent { color:${BRAND.orange}; }
+    .h-section { font-size:30px; text-transform:uppercase; color:${BRAND.ink}; border-bottom:3px solid ${BRAND.orange}; padding-bottom:8px; margin-bottom:22px; display:inline-block; }
+    .lead { font-size:14px; line-height:1.6; color:#333; }
+    table { width:100%; border-collapse:collapse; font-size:11px; }
+    th { background:${BRAND.ink}; color:#fff; text-align:left; padding:7px 9px; font-family:'Barlow Condensed'; text-transform:uppercase; letter-spacing:.04em; font-weight:600; font-size:11px; }
+    td { padding:6px 9px; border-bottom:1px solid ${BRAND.line}; }
+    tr:nth-child(even) td { background:#faf8f5; }
+    .num { text-align:right; font-variant-numeric:tabular-nums; }
+    .tot td { background:${BRAND.orange}!important; color:#fff; font-weight:700; font-size:13px; }
+    .footer { position:absolute; left:0; right:0; bottom:0; height:0.62in; background:${BRAND.ink}; display:flex; align-items:center; padding:0 0.6in; gap:12px; }
+    .footer img { height:30px; width:30px; border-radius:50%; object-fit:cover; background:#fff; }
+    .footer .ft { font-family:'Barlow Condensed'; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#cbd5e1; }
+    .footer .ft b { color:${BRAND.orange}; }
+    .footer .pg { margin-left:auto; font-family:'Black Ops One'; color:#fff; font-size:13px; }
+    ul.terms { list-style:none; }
+    ul.terms > li { font-size:11.5px; line-height:1.5; padding:5px 0 5px 22px; position:relative; border-bottom:1px solid #f0ece4; }
+    ul.terms > li:before { content:""; position:absolute; left:4px; top:11px; width:7px; height:7px; background:${BRAND.orange}; border-radius:2px; }
+    ul.sub { list-style:none; margin:4px 0 0 18px; }
+    ul.sub > li { font-size:10.5px; line-height:1.45; color:#555; padding:2px 0 2px 16px; position:relative; }
+    ul.sub > li:before { content:"–"; position:absolute; left:2px; color:${BRAND.orange}; }
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    .card { border:1px solid ${BRAND.line}; border-left:4px solid ${BRAND.orange}; border-radius:4px; padding:12px 14px; }
+    .card .k { font-family:'Barlow Condensed'; text-transform:uppercase; letter-spacing:.06em; font-size:11px; color:#888; }
+    .card .v { font-family:'Black Ops One'; font-size:22px; color:${BRAND.ink}; margin-top:2px; }
+    .kpi { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0; }
+    .kpi > div { flex:1; min-width:120px; background:${BRAND.ink}; color:#fff; border-radius:6px; padding:12px 14px; }
+    .kpi .k { font-family:'Barlow Condensed'; text-transform:uppercase; font-size:11px; letter-spacing:.06em; color:#9fb0c8; }
+    .kpi .v { font-family:'Black Ops One'; font-size:24px; color:${BRAND.orange}; margin-top:3px; }
+    @page { size:letter; margin:0; }
+    @media print { .noprint{display:none!important;} }
+  </style></head><body>`;
+}
+
+function footer(bid, page) {
+  return `<div class="footer"><img src="${SRC_LOGO}"/><div class="ft"><b>${esc((bid.projectName || "PROJECT").toUpperCase())} PROPOSAL</b> — SUN RISE CONSTRUCTION & DEVELOPMENT LLC</div><div class="pg">${page}</div></div>`;
+}
+
+function openPrint(html) {
+  const w = window.open("", "_blank");
+  if (!w) { alert("Allow pop-ups to export the document."); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  // Give fonts/logo a beat to load, then print.
+  const go = () => { try { w.focus(); w.print(); } catch (e) {} };
+  if (w.document.readyState === "complete") setTimeout(go, 600);
+  else w.onload = () => setTimeout(go, 600);
+}
+
+/* ----------------------------------------------------------------------------
+   Bid Proposal (client-facing)
+---------------------------------------------------------------------------- */
+
+export function buildProposalHTML(bid, computed) {
+  const c = computed || computeBid({ ...DEFAULT_BID, ...bid });
+  const estNo = bidNo(bid);
+  const scopes = [
+    ["Pile Installation", c.pileScopeTotal],
+    ["Racking Installation", c.rackingScopeTotal],
+    ["Module Installation", c.moduleScopeTotal],
+    ["Material Handling", c.matHandlScopeTotal],
+    ["Quality Control", c.qcScopeTotal],
+    ["General Conditions", c.gcTotalCost],
+    ["Project Management", c.mgmtTotalCost],
+    ["Mobilization", c.mobTotalCost],
+    ["Waste Management", c.wasteTotal],
+  ];
+  const scopeRows = scopes.map(([k, v]) =>
+    `<tr><td>${k}</td><td class="num">${money(v)}</td></tr>`).join("");
+
+  const breakdown = [
+    ["Pile Installation", c.pileLaborCost, c.pileEquipRental, c.pileFuelCost, c.pilePerDiemCost, c.pileScopeTotal],
+    ["Racking Installation", c.rackingLaborCost, c.rackingEquipRental, c.rackingFuelCost, c.rackingPerDiemCost, c.rackingScopeTotal],
+    ["Module Installation", c.moduleLaborCost, c.moduleEquipRental, c.moduleFuelCost, c.modulePerDiemCost, c.moduleScopeTotal],
+    ["Material Handling", c.matHandlLaborCost, c.matHandlEquipRental, c.matHandlFuelCost, c.matHandlPerDiemCost, c.matHandlScopeTotal],
+    ["Quality Control", c.qcLaborCost, 0, 0, c.qcPerDiemCost, c.qcScopeTotal],
+  ];
+  const breakdownRows = breakdown.map(([k, l, e, f, p, tot]) =>
+    `<tr><td>${k}</td><td class="num">${money(l)}</td><td class="num">${money(e)}</td><td class="num">${money(f)}</td><td class="num">${money(p)}</td><td class="num">${money(tot)}</td></tr>`).join("");
+
+  const incMech = [
+    "Provide labor, supervision, tools, equipment & install furnished materials to complete the mechanical scopes of work.",
+    "Pile installation including layout verification, driving, and embedment to project specifications.",
+    "Torque tube, module rail, and tracker mechanical assembly per the racking manufacturer's installation manual.",
+    "Module installation, clamping, and torqueing to manufacturer specification.",
+    "Mechanical scope quality control, inspection, and punch-list completion.",
+    "One (1) mobilization and one (1) demobilization consistent with the proposed schedule basis.",
+    "Material handling directly associated with Sun Rise's mechanical scope: receipt, unloading, staging, and distribution of owner-furnished materials using Sun Rise-provided handling equipment (telehandlers, skid steers, forklifts).",
+    "Required insurance coverage carried by Sun Rise for execution of the scope of work.",
+    "Pile pull testing on approximately 2% of total installed piles, selected by the Owner/EPC — execution and data collection only.",
+    `Work schedule basis: ${bid.workdaysInWeek || 5}-day work week, ${bid.workHoursPerDay || 10}-hour day (${bid.workdaysInWeek || 5}×${bid.workHoursPerDay || 10}).`,
+  ];
+  const excMech = [
+    "Owner-furnished / permanent project materials.",
+    "Civil scope: clearing, grubbing, grading, road construction, dust control, and soil stabilization.",
+    "Electrical scope of any kind (DC/AC), unless explicitly added by contract.",
+    "Site security services, guards, cameras, fencing, lighting, or monitoring for the overall site or laydown areas.",
+    "Schedule changes / acceleration beyond the stated basis: overtime, shift work, or resequencing directed by others.",
+    "Costs and impacts from delays or inefficiencies caused by Owner/EPC deliveries, incomplete kits, access restrictions, or interference by other trades.",
+    "Permits, fees, inspections, or authority requirements not directly tied to Sun Rise's mechanical installation scope.",
+    "Dewatering, water hauling, and water management.",
+    "Standby / idle time caused by delays by others, access restrictions, or inspection delays.",
+  ];
+  const incPre = [
+    `Pre-drilling of approximately ${num(c.totalPiles)} holes for racking, inverter, and combiner foundations in accordance with project plans and specifications.`,
+    "Drilling to required depth and diameter necessary to support pile installation.",
+    "Provision of all drilling rigs, support equipment, operators, and labor required to execute the pre-drill scope.",
+    "Standard tooling, augers, wear parts, and routine maintenance.",
+    "One (1) mobilization and one (1) demobilization of all personnel and equipment, consistent with the proposal pricing.",
+    "Field supervision, coordination, site management, and daily reporting.",
+    "Survey layout and verification for the pre-drill installation only.",
+    "Pre-drilling based on anticipated subsurface conditions consistent with geotechnical reports provided at time of bid.",
+  ];
+  const excPre = [
+    "Over-drilling / depth changes: any drilling beyond specified depths or standard diameters due to design changes, field conditions, or failed inspections.",
+    "Rework / abandoned holes: re-drilling due to design changes, misalignment not caused by Sun Rise, or inspection failures not related to drilling quality.",
+    "Site preparation: clearing & grubbing, grading, road construction, dust control, stabilization of unsuitable soils.",
+    "Water management: dewatering and water hauling.",
+    "Weather delays / force majeure: flooding and extreme conditions.",
+    "Standby / idle time: delays by others, access restrictions, inspection delays.",
+    "Environmental / special requirements: archaeological monitoring and special permitting requirements.",
+  ];
+  const li = (arr) => arr.map((x) => `<li>${esc(x)}</li>`).join("");
+
+  let pageNo = 0;
+  const PG = () => ++pageNo;
+
+  return docHead((bid.projectName || "Project") + " — Proposal") + `
+  <!-- COVER -->
+  <div class="page" style="padding:0;">
+    <div style="position:absolute;inset:0;background:
+      radial-gradient(120% 90% at 80% -10%, ${BRAND.navy2} 0%, ${BRAND.ink} 55%, #000 100%);"></div>
+    <div style="position:absolute;inset:0;background:
+      repeating-linear-gradient(115deg, rgba(255,255,255,.03) 0 2px, transparent 2px 26px);"></div>
+    <div style="position:absolute;left:0.7in;top:1.3in;right:0.7in;color:#fff;">
+      <div style="font-family:'Barlow Condensed';letter-spacing:.35em;color:${BRAND.orange};font-size:14px;text-transform:uppercase;">Mechanical & Pre-Drill Proposal</div>
+      <h1 style="font-size:54px;line-height:1.02;margin-top:14px;text-transform:uppercase;color:#fff;">${esc(bid.projectName || "Project Name")}</h1>
+      <div style="width:120px;height:5px;background:${BRAND.orange};margin:18px 0;"></div>
+      <div style="font-family:'Black Ops One';font-size:22px;color:${BRAND.cream};">SUN RISE CONSTRUCTION<br/>& DEVELOPMENT LLC</div>
+      <div style="margin-top:10px;font-family:'Barlow Condensed';letter-spacing:.15em;color:#9fb0c8;font-size:14px;">BID ESTIMATE: ${estNo}</div>
+    </div>
+    <div style="position:absolute;left:0.7in;bottom:1.2in;color:#cbd5e1;font-size:12px;line-height:1.7;">
+      <div style="font-family:'Barlow Condensed';letter-spacing:.2em;color:${BRAND.orange};text-transform:uppercase;margin-bottom:6px;">Report Prepared By</div>
+      ${esc(SRC.rep)}<br/>${esc(SRC.repTitle)}<br/>${esc(SRC.legalName)}<br/>${esc(titleDate())}
+    </div>
+    <img src="${SRC_LOGO}" style="position:absolute;right:0.7in;bottom:1.1in;width:120px;height:120px;border-radius:50%;background:#fff;object-fit:cover;box-shadow:0 0 40px rgba(249,115,22,.4);"/>
+  </div>
+
+  <!-- TOC -->
+  <div class="page" style="background:${BRAND.ink};color:#fff;">
+    <h1 style="font-size:40px;text-transform:uppercase;margin-top:0.3in;">Table of <span class="accent">Contents</span></h1>
+    <div style="width:120px;height:4px;background:${BRAND.orange};margin:16px 0 40px;"></div>
+    ${[
+      ["Company & Contact Overview", "III"],
+      ["Scope of Work & Pricing", "IV"],
+      ["Detailed Price Breakdown", "V"],
+      ["Mechanical Inclusions", "VI"],
+      ["Mechanical Exclusions", "VII"],
+      ["Pre-Drill Inclusions", "VIII"],
+      ["Pre-Drill Exclusions", "IX"],
+      ["Our Commitment", "X"],
+    ].map(([t, n]) => `<div style="display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid rgba(255,255,255,.12);font-family:'Barlow Condensed';font-size:18px;letter-spacing:.05em;text-transform:uppercase;"><span>${esc(t)}</span><span style="flex:1;border-bottom:1px dotted rgba(255,255,255,.25);margin:0 8px;"></span><span class="accent" style="font-family:'Black Ops One';">${n}</span></div>`).join("")}
+    ${footer(bid, "II")}
+  </div>
+
+  <!-- COMPANY & CONTACT -->
+  <div class="page">
+    <h2 class="h-section">Company & Contact Overview</h2>
+    <div class="grid2" style="margin-bottom:18px;">
+      <div class="card"><div class="k">Bid Prepared By</div>
+        <div style="font-family:'Black Ops One';font-size:16px;margin:4px 0 6px;color:${BRAND.ink};">${esc(SRC.legalName)}</div>
+        <div style="font-size:12px;line-height:1.7;color:#444;">${esc(SRC.address)}<br/>Rep: ${esc(SRC.rep)} — ${esc(SRC.repTitle)}<br/>Phone: ${esc(SRC.phone)}<br/>Email: ${esc(SRC.email)}</div>
+      </div>
+      <div class="card"><div class="k">Bid Prepared For</div>
+        <div style="font-family:'Black Ops One';font-size:16px;margin:4px 0 6px;color:${BRAND.ink};">${esc(bid.clientName || "Client")}</div>
+        <div style="font-size:12px;line-height:1.7;color:#444;">${esc(bid.clientContact || "—")}</div>
+      </div>
+    </div>
+    <div class="card" style="border-left-color:${BRAND.navy};">
+      <div class="k">Project</div>
+      <div style="font-size:13px;line-height:1.9;color:#333;margin-top:4px;">
+        <b>Project Name:</b> ${esc(bid.projectName || "—")}<br/>
+        <b>Project Location:</b> ${esc(bid.projectLocation || "—")}<br/>
+        <b>Project Size:</b> ${num(bid.systemSizeMW, 2)} MW &nbsp;·&nbsp; <b>Module Count:</b> ${num(c.moduleCount)} &nbsp;·&nbsp; <b>Total Piles:</b> ${num(c.totalPiles)}
+      </div>
+    </div>
+    <div style="margin-top:26px;" class="lead">
+      ${esc(SRC.legalName)} is pleased to submit the following proposal for the
+      ${esc(bid.projectName || "project")}${bid.projectLocation ? " located in " + esc(bid.projectLocation) : ""}.
+      We appreciate this opportunity to serve you and look forward to executing a successful project together.
+    </div>
+    ${footer(bid, "III")}
+  </div>
+
+  <!-- SCOPE & PRICING -->
+  <div class="page">
+    <h2 class="h-section">Scope of Work & Pricing</h2>
+    <div class="lead" style="margin-bottom:16px;">Provide labor, supervision, tools, equipment &amp; install furnished materials to complete the mechanical and pre-drill scopes of work.</div>
+    <div class="kpi">
+      <div><div class="k">Project Size</div><div class="v">${num(bid.systemSizeMW, 1)} MW</div></div>
+      <div><div class="k">$ / Watt</div><div class="v">$${num(c.dollarPerWattWithBond, 3)}</div></div>
+      <div><div class="k">Schedule</div><div class="v">${num(c.totalMonths, 1)} mo</div></div>
+      <div><div class="k">Man-Hours</div><div class="v">${num(c.totalManHoursAll)}</div></div>
+    </div>
+    <h3 class="ops" style="font-size:18px;margin:18px 0 8px;text-transform:uppercase;">Pricing Summary</h3>
+    <table>
+      <tr><th>Scope</th><th class="num">Total</th></tr>
+      ${scopeRows}
+      <tr><td>Subtotal</td><td class="num">${money(c.subtotalCost)}</td></tr>
+      <tr><td>Contingency (${pct(bid.contingencyPct ?? DEFAULT_BID.contingencyPct)})</td><td class="num">${money(c.contingencyAmt)}</td></tr>
+      <tr><td>Overhead &amp; Profit</td><td class="num">${money(c.markupAmt)}</td></tr>
+      <tr><td>Performance / Payment Bond (${pct(bid.bondPct ?? DEFAULT_BID.bondPct)})</td><td class="num">${money(c.bondAmt)}</td></tr>
+      <tr class="tot"><td>Total Contract Price</td><td class="num">${money(c.postBondTotal)}</td></tr>
+    </table>
+    ${footer(bid, "IV")}
+  </div>
+
+  <!-- PRICE BREAKDOWN -->
+  <div class="page">
+    <h2 class="h-section">Detailed Price Breakdown</h2>
+    <table>
+      <tr><th>Scope</th><th class="num">Labor</th><th class="num">Equipment</th><th class="num">Fuel</th><th class="num">Per Diem</th><th class="num">Total</th></tr>
+      ${breakdownRows}
+      <tr><td>General Conditions</td><td class="num" colspan="4"></td><td class="num">${money(c.gcTotalCost)}</td></tr>
+      <tr><td>Project Management</td><td class="num" colspan="4"></td><td class="num">${money(c.mgmtTotalCost)}</td></tr>
+      <tr><td>Mobilization</td><td class="num" colspan="4"></td><td class="num">${money(c.mobTotalCost)}</td></tr>
+      <tr><td>Waste Management</td><td class="num" colspan="4"></td><td class="num">${money(c.wasteTotal)}</td></tr>
+      <tr class="tot"><td colspan="5">Direct + Indirect Subtotal</td><td class="num">${money(c.subtotalCost)}</td></tr>
+    </table>
+    <div class="grid2" style="margin-top:20px;">
+      <div class="card"><div class="k">Pre-Drill Holes</div><div class="v">${num(c.totalPiles)}</div></div>
+      <div class="card"><div class="k">Linear Feet of Racking</div><div class="v">${num(c.linearFeetRacking)}</div></div>
+      <div class="card"><div class="k">Total Calendar Days</div><div class="v">${num(c.totalCalendarDays)}</div></div>
+      <div class="card"><div class="k">Apprentice %</div><div class="v">${pct(c.apprenticePct)}</div></div>
+    </div>
+    ${footer(bid, "V")}
+  </div>
+
+  <!-- INCLUSIONS MECH -->
+  <div class="page">
+    <h2 class="h-section">Mechanical — Inclusions</h2>
+    <ul class="terms">${li(incMech)}</ul>
+    ${footer(bid, "VI")}
+  </div>
+
+  <!-- EXCLUSIONS MECH -->
+  <div class="page">
+    <h2 class="h-section">Mechanical — Exclusions</h2>
+    <ul class="terms">${li(excMech)}</ul>
+    ${footer(bid, "VII")}
+  </div>
+
+  <!-- INCLUSIONS PRE -->
+  <div class="page">
+    <h2 class="h-section">Pre-Drill — Inclusions</h2>
+    <ul class="terms">${li(incPre)}</ul>
+    ${footer(bid, "VIII")}
+  </div>
+
+  <!-- EXCLUSIONS PRE -->
+  <div class="page">
+    <h2 class="h-section">Pre-Drill — Exclusions</h2>
+    <ul class="terms">${li(excPre)}</ul>
+    ${footer(bid, "IX")}
+  </div>
+
+  <!-- COMMITMENT -->
+  <div class="page">
+    <h2 class="h-section">Our Commitment</h2>
+    <div class="lead" style="margin-bottom:16px;">We don't just construct projects; we build outstanding teams, lasting jobs, and a working environment that sends everyone home safe, happy, and fulfilled at the end of each day.</div>
+    <div class="lead" style="margin-bottom:16px;">Our strength is in our people. We have a reputation for delivering under high pressure with short deadlines. The moment we take on your project, we are fully committed to over-delivering on our promises and creating a quality project together.</div>
+    <div class="lead">Our vision is our guide: we aim to be a leading energy contractor, supporting the nation's largest utility-scale projects with precision, efficiency, and dominance. We are excited to work with partners dedicated to the same vision of a brighter future.</div>
+    <div style="margin-top:40px;text-align:center;">
+      <img src="${SRC_LOGO}" style="width:90px;height:90px;border-radius:50%;background:#fff;object-fit:cover;"/>
+      <div style="font-family:'Black Ops One';font-size:22px;margin-top:12px;color:${BRAND.ink};">${esc(SRC.legalName)}</div>
+      <div style="font-family:'Barlow Condensed';letter-spacing:.2em;color:${BRAND.orange};text-transform:uppercase;margin-top:4px;">${esc(SRC.tagline)}</div>
+      <div style="font-size:12px;color:#555;margin-top:10px;line-height:1.7;">${esc(SRC.phone)} &nbsp;·&nbsp; ${esc(SRC.email)}<br/>${esc(SRC.address)}</div>
+    </div>
+    ${footer(bid, "X")}
+  </div>
+  </body></html>`;
+}
+
+/* ----------------------------------------------------------------------------
+   Project Execution Plan (internal)
+---------------------------------------------------------------------------- */
+
+export function buildExecutionPlanHTML(bid, computed) {
+  const c = computed || computeBid({ ...DEFAULT_BID, ...bid });
+  const row = (k, v) => `<tr><td>${esc(k)}</td><td class="num">${v}</td></tr>`;
+  const scopePlan = [
+    ["Pre-Drill / Pile", c.pileDaysToComplete, c.pileCalendarDays, c.pileTotalStaff, c.pileTotalManHours, c.pileScopeTotal,
+      `${bid.numExcavators} pile-driving rigs + ${bid.pileSkidSteerOps} skid steer op(s), ${bid.pileGroundMan} ground men, ${bid.pileAdditionalLaborers} laborers. ${num(c.pilesPerDayPerMachine,0)} piles/day/machine across ${num(c.totalPiles)} piles.`],
+    ["Racking", c.rackingDaysToComplete, c.rackingCalendarDays, bid.rackingTotalWorkers, c.rackingManHours, c.rackingScopeTotal,
+      `${bid.rackingTotalWorkers}-person crew at ${bid.rackingLfPerHourPerMan} LF/hr/man over ${num(c.linearFeetRacking)} LF of torque tube.`],
+    ["Module", c.moduleDaysToComplete, c.moduleCalendarDays, bid.moduleTotalWorkers, c.moduleManHours, c.moduleScopeTotal,
+      `${bid.moduleTotalWorkers}-person crew at ${bid.modulesPerHourPerMan} modules/hr/man over ${num(c.moduleCount)} modules.`],
+    ["Material Handling", c.matHandlWorkDays, c.matHandlCalendarDays, bid.matHandlCrewSize, c.matHandlManHours, c.matHandlScopeTotal,
+      `${bid.matHandlCrewSize}-person crew running parallel to pile install (pile days + 3).`],
+    ["Quality Control", c.qcWorkdays, c.qcCalendarDays, bid.qcNumMen, c.qcManHours, c.qcScopeTotal,
+      `${bid.qcNumMen} QC men. ${num(c.qcTotalHours)} QC hours (pile ${num(c.qcPileHours)} / racking ${num(c.qcRackingHours)} / module ${num(c.qcModuleHours)}).`],
+  ];
+  const scopePlanRows = scopePlan.map(([k, wd, cd, staff, mh, cost, note]) =>
+    `<tr><td><b>${k}</b></td><td class="num">${num(wd)}</td><td class="num">${num(cd)}</td><td class="num">${num(staff)}</td><td class="num">${num(mh)}</td><td class="num">${money0(cost)}</td></tr>
+     <tr><td colspan="6" style="font-size:10.5px;color:#555;background:#faf8f5;padding-top:0;">${esc(note)}</td></tr>`).join("");
+
+  const equip = [
+    ["Pile Driver / Excavator", bid.numExcavators, bid.pileDriverEquipDaily, c.pileDriverFuelPerDay],
+    ["Skid Steer", bid.pileSkidSteerOps + bid.rackingSkidSteerOps + bid.moduleSkidSteerOps + bid.matHandlSkidOps, bid.skidSteerEquipDaily, c.skidSteerFuelPerDay],
+    ["Telehandler", bid.rackingTelehandlerOps + bid.matHandlTeleOps, bid.telehandlerEquipDaily, c.telehandlerFuelPerDay],
+    ["Company Truck", 1, bid.companyTruckEquipDaily, c.companyTruckFuelPerDay],
+    ["UTV / Carts", bid.gcCartsQty, bid.gcCartsRate, c.utvFuelPerDay],
+  ];
+  const equipRows = equip.map(([k, q, daily, fuel]) =>
+    `<tr><td>${k}</td><td class="num">${num(q)}</td><td class="num">${money(daily)}</td><td class="num">${money(fuel)}</td></tr>`).join("");
+
+  const allFields = Object.keys(bid).filter((k) => bid[k] !== "" && bid[k] != null);
+  const inputRows = allFields.map((k) => {
+    let v = bid[k];
+    if (typeof v === "boolean") v = v ? "Yes" : "No";
+    return `<tr><td>${esc(k)}</td><td class="num">${esc(typeof v === "number" ? v.toLocaleString() : v)}</td></tr>`;
+  }).join("");
+
+  return docHead((bid.projectName || "Project") + " — Execution Plan") + `
+  <div class="page" style="background:${BRAND.ink};color:#fff;padding-top:1.4in;">
+    <div style="font-family:'Barlow Condensed';letter-spacing:.35em;color:${BRAND.orange};text-transform:uppercase;font-size:14px;">Internal — Project Execution Plan</div>
+    <h1 style="font-size:48px;text-transform:uppercase;margin-top:12px;">${esc(bid.projectName || "Project")}</h1>
+    <div style="width:120px;height:5px;background:${BRAND.orange};margin:16px 0;"></div>
+    <div style="font-size:13px;color:#cbd5e1;line-height:1.9;">
+      ${esc(bid.projectLocation || "")}<br/>
+      ${num(bid.systemSizeMW,2)} MW · ${num(c.totalPiles)} piles · ${num(c.moduleCount)} modules<br/>
+      Prepared ${esc(titleDate())} · ${esc(SRC.legalName)}
+    </div>
+    <div class="kpi" style="margin-top:30px;">
+      <div><div class="k">Contract Price</div><div class="v">${money0(c.postBondTotal)}</div></div>
+      <div><div class="k">$ / Watt</div><div class="v">$${num(c.dollarPerWattWithBond,3)}</div></div>
+      <div><div class="k">Duration</div><div class="v">${num(c.totalCalendarDays)} d</div></div>
+      <div><div class="k">Man-Hours</div><div class="v">${num(c.totalManHoursAll)}</div></div>
+    </div>
+    ${footer(bid, "1")}
+  </div>
+
+  <div class="page">
+    <h2 class="h-section">Execution Methodology — How & Where</h2>
+    <table>
+      <tr><th>Scope</th><th class="num">Work Days</th><th class="num">Cal Days</th><th class="num">Crew</th><th class="num">Man-Hrs</th><th class="num">Cost</th></tr>
+      ${scopePlanRows}
+      <tr class="tot"><td>Project Total</td><td class="num">${num(c.totalWorkDays)}</td><td class="num">${num(c.totalCalendarDays)}</td><td class="num">—</td><td class="num">${num(c.totalManHoursAll)}</td><td class="num">${money0(c.subtotalCost)}</td></tr>
+    </table>
+    <p class="lead" style="margin-top:14px;font-size:12px;">Sequence: mobilize → material handling (parallel) → pre-drill / pile install → racking / torque tube → module install → QC &amp; punch → demobilize. Schedule basis ${bid.workdaysInWeek||5}×${bid.workHoursPerDay||10}.</p>
+    ${footer(bid, "2")}
+  </div>
+
+  <div class="page">
+    <h2 class="h-section">Manpower & Productivity</h2>
+    <table>
+      ${row("Total Man-Hours (all scopes)", num(c.totalManHoursAll))}
+      ${row("Man-Hours per MW", num(c.manHoursPerMW,0))}
+      ${row("Apprentice Hours", num(c.totalApprenticeHours))}
+      ${row("Apprentice %", pct(c.apprenticePct) + (c.apprenticeMet ? " (meets " + pct(bid.apprenticeReqPct ?? DEFAULT_BID.apprenticeReqPct) + ")" : " (below req)"))}
+      ${row("Pile crew / day rate", num(c.pileTotalStaff) + " @ " + money(c.generalLaborDayRate))}
+      ${row("Pile productivity", num(c.pilesPerDayPerMachine,0) + " piles/day/machine")}
+      ${row("Racking productivity", bid.rackingLfPerHourPerMan + " LF/hr/man")}
+      ${row("Module productivity", bid.modulesPerHourPerMan + " modules/hr/man")}
+      ${row("General labor day rate", money(c.generalLaborDayRate))}
+      ${row("Pile driver op day rate", money(c.pileDriverOpDayRate))}
+      ${row("Telehandler op day rate", money(c.telehandlerOpDayRate))}
+      ${row("Skid steer op day rate", money(c.skidSteerOpDayRate))}
+      ${row("Payroll tax burden", pct(c.payrollTaxPct))}
+      ${row("Wage type", esc(bid.wageType || "Union"))}
+    </table>
+    ${footer(bid, "3")}
+  </div>
+
+  <div class="page">
+    <h2 class="h-section">Schedule & Mobilization</h2>
+    <div class="grid2" style="margin-bottom:16px;">
+      <div class="card"><div class="k">Total Calendar Days</div><div class="v">${num(c.totalCalendarDays)}</div></div>
+      <div class="card"><div class="k">Total Duration</div><div class="v">${num(c.totalMonths,1)} mo</div></div>
+    </div>
+    <table>
+      ${row("Pile work / calendar days", num(c.pileDaysToComplete) + " / " + num(c.pileCalendarDays))}
+      ${row("Racking work / calendar days", num(c.rackingDaysToComplete) + " / " + num(c.rackingCalendarDays))}
+      ${row("Module work / calendar days", num(c.moduleDaysToComplete) + " / " + num(c.moduleCalendarDays))}
+      ${row("QC work / calendar days", num(c.qcWorkdays) + " / " + num(c.qcCalendarDays))}
+      ${row("Schedule basis", (bid.workdaysInWeek||5) + " days/wk × " + (bid.workHoursPerDay||10) + " hr/day")}
+      ${row("Drive + transition (min/pile)", num((bid.estDriveTime||0)+(bid.estTransitionTime||0)))}
+      ${row("Miles from HQ", num(bid.milesFromHQ))}
+      ${row("Mobilization total", money(c.mobTotalCost))}
+      ${row("Extra mobilizations", num(bid.mobExtraMobs))}
+    </table>
+    ${footer(bid, "4")}
+  </div>
+
+  <div class="page">
+    <h2 class="h-section">Equipment & Logistics</h2>
+    <table>
+      <tr><th>Equipment</th><th class="num">Qty</th><th class="num">Daily Rate</th><th class="num">Fuel / Day</th></tr>
+      ${equipRows}
+      <tr class="tot"><td colspan="3">Total Fuel Cost (project)</td><td class="num">${money0(c.totalFuelCost)}</td></tr>
+    </table>
+    <table style="margin-top:16px;">
+      ${row("Diesel $/gal", money(bid.dieselPerGallon))}
+      ${row("Pile equipment rental", money(c.pileEquipRental))}
+      ${row("Racking equipment rental", money(c.rackingEquipRental))}
+      ${row("Module equipment rental", money(c.moduleEquipRental))}
+      ${row("Material handling rental", money(c.matHandlEquipRental))}
+    </table>
+    ${footer(bid, "5")}
+  </div>
+
+  <div class="page">
+    <h2 class="h-section">Safety · QC · Waste · General Conditions</h2>
+    <div class="grid2">
+      <div class="card"><div class="k">Safety Program</div><div class="v">${money0(c.safetyCost)}</div><div style="font-size:11px;color:#555;margin-top:4px;">@ ${money(bid.gcSafetyRate)}/man-hr · ${bid.mgmtSafetyQty} safety mgr</div></div>
+      <div class="card"><div class="k">Quality Control</div><div class="v">${money0(c.qcScopeTotal)}</div><div style="font-size:11px;color:#555;margin-top:4px;">${num(c.qcTotalHours)} hrs · ${bid.qcNumMen} men</div></div>
+      <div class="card"><div class="k">Waste Management</div><div class="v">${money0(c.wasteTotal)}</div><div style="font-size:11px;color:#555;margin-top:4px;">${bid.wasteDumpsterQty} dumpsters @ ${money(bid.wasteDumpsterRate)}</div></div>
+      <div class="card"><div class="k">General Conditions</div><div class="v">${money0(c.gcTotalCost)}</div><div style="font-size:11px;color:#555;margin-top:4px;">site office, sanitary, tools, survey, payroll</div></div>
+    </div>
+    <table style="margin-top:18px;">
+      ${row("Pile pull testing", "~2% of " + num(c.totalPiles) + " piles")}
+      ${row("Site office", money(c.siteOfficeCost))}
+      ${row("Sanitary", money(c.sanitaryCost))}
+      ${row("Small tools", money(c.smallToolsCost))}
+      ${row("Pile survey", money(c.pileSurveyCost))}
+      ${row("Payroll service", money(c.payrollCost))}
+      ${row("Project management", money(c.mgmtTotalCost))}
+    </table>
+    ${footer(bid, "6")}
+  </div>
+
+  <div class="page">
+    <h2 class="h-section">Financial Summary</h2>
+    <table>
+      ${row("Subtotal (direct + indirect)", money(c.subtotalCost))}
+      ${row("Contingency (" + pct(bid.contingencyPct ?? DEFAULT_BID.contingencyPct) + ")", money(c.contingencyAmt))}
+      ${row("Overhead & Profit (" + pct(bid.markupPct ?? DEFAULT_BID.markupPct) + ")", money(c.markupAmt))}
+      ${row("Pre-Bond Total", money(c.preBondTotal))}
+      ${row("Bond (" + pct(bid.bondPct ?? DEFAULT_BID.bondPct) + ")", money(c.bondAmt))}
+      ${row("$/Watt (pre-bond)", "$" + num(c.dollarPerWatt,3))}
+      ${row("$/Watt (with bond)", "$" + num(c.dollarPerWattWithBond,3))}
+    </table>
+    <table style="margin-top:6px;"><tr class="tot"><td>Total Contract Price</td><td class="num">${money(c.postBondTotal)}</td></tr></table>
+    ${footer(bid, "7")}
+  </div>
+
+  <div class="page">
+    <h2 class="h-section">Bid Inputs (Full Record)</h2>
+    <table style="font-size:10px;">${inputRows}</table>
+    ${footer(bid, "8")}
+  </div>
+  </body></html>`;
+}
+
+/* ----------------------------------------------------------------------------
+   Public API
+---------------------------------------------------------------------------- */
+
+export function exportBidProposal(bid, computed) {
+  openPrint(buildProposalHTML(bid, computed));
+}
+export function exportExecutionPlan(bid, computed) {
+  openPrint(buildExecutionPlanHTML(bid, computed));
+}
+
+const btnBase = {
+  display: "inline-flex", alignItems: "center", gap: 8,
+  padding: "9px 16px", borderRadius: 6, cursor: "pointer",
+  fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 600,
+  textTransform: "uppercase", letterSpacing: ".06em", fontSize: 13,
+  border: "none", outline: "none",
+};
+
+export default function BidExportButtons({ bid, computed, style }) {
+  const c = useMemo(() => computed || computeBid({ ...DEFAULT_BID, ...bid }), [bid, computed]);
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", ...style }}>
+      <button
+        onClick={() => exportBidProposal(bid, c)}
+        style={{ ...btnBase, background: BRAND.orange, color: "#fff" }}
+        title="Generate client-facing bid proposal PDF"
+      >
+        📄 Export Bid Proposal
+      </button>
+      <button
+        onClick={() => exportExecutionPlan(bid, c)}
+        style={{ ...btnBase, background: BRAND.ink, color: "#fff" }}
+        title="Generate internal project execution plan PDF"
+      >
+        🗂️ Export Execution Plan
+      </button>
+    </div>
+  );
+}

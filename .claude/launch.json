@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "autoVerify": false,
+  "configurations": [
+    {
+      "name": "Site Map Preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "3000", "--bind", "0.0.0.0", "--directory", "/tmp/serve"],
+      "port": 3000
+    }
+  ]
+}
