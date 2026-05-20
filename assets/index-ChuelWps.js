@@ -460,12 +460,12 @@ async function ensurePdfJs() {
   if (window.pdfjsLib) return window.pdfjsLib;
   await new Promise((res, rej) => {
     const s = document.createElement("script");
-    s.src = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.min.js`;
+    s.src = `/assets/pdf.min.js`;
     s.onload = res;
     s.onerror = rej;
     document.head.appendChild(s);
   });
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.worker.min.js`;
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = `/assets/pdf.worker.min.js`;
   return window.pdfjsLib;
 }
 async function fileToCanvas(file, pdfScale = 2) {
