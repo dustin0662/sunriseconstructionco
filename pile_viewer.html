@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<title>Midway — Foundation Pile Viewer</title>
+<style>
+  :root {
+    --bg: #0a0a14;
+    --panel: rgba(18, 22, 36, 0.92);
+    --panel-border: rgba(255,255,255,0.08);
+    --fg: #e8eaf0;
+    --muted: #9aa1b2;
+    --accent: #f97316;
+  }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  .panel {
+    position: absolute;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  }
+  #header {
+    top: 12px; left: 12px; right: 12px;
+    padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+  }
+  #header .title { font-weight: 600; letter-spacing: 0.02em; }
+  #header .stats { color: var(--muted); font-size: 12px; }
+
+  #legend {
+    top: 70px; left: 12px;
+    width: 280px;
+    max-height: calc(100% - 100px);
+    padding: 12px 14px;
+    overflow-y: auto;
+    font-size: 12px;
+  }
+  #legend h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+  .legend-row {
+    display: grid;
+    grid-template-columns: 18px 1fr 36px 28px;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .legend-row:hover { background: rgba(255,255,255,0.05); }
+  .legend-row.off { opacity: 0.4; }
+  .legend-row .swatch {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.25);
+  }
+  .legend-row .name { font-weight: 500; }
+  .legend-row .type { color: var(--muted); font-size: 11px; }
+  .legend-row .count { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  #groups {
+    top: 70px; right: 12px;
+    width: 180px;
+    padding: 12px 14px;
+    font-size: 12px;
+  }
+  #groups h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+  .group-row {
+    display: flex; justify-content: space-between;
+    padding: 5px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .group-row:hover { background: rgba(255,255,255,0.05); }
+  .group-row.off { opacity: 0.4; }
+  .group-row .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  #info {
+    bottom: 12px; right: 12px;
+    width: 280px;
+    padding: 14px;
+    font-size: 12.5px;
+    display: none;
+  }
+  #info.shown { display: block; }
+  #info .serial { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; }
+  #info .row {
+    display: flex; justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  #info .row:last-child { border-bottom: 0; }
+  #info .row .k { color: var(--muted); }
+  #info .row .v { font-variant-numeric: tabular-nums; }
+  #info .head {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px;
+  }
+  #info .swatch {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.25);
+    flex-shrink: 0;
+  }
+  #info .close {
+    position: absolute; top: 8px; right: 10px;
+    width: 22px; height: 22px;
+    background: transparent; color: var(--muted);
+    border: 0; cursor: pointer; font-size: 16px;
+    line-height: 1;
+  }
+
+  #controls {
+    bottom: 12px; left: 12px;
+    padding: 10px 12px;
+    font-size: 12px;
+    display: flex; flex-direction: column; gap: 6px;
+    color: var(--muted);
+  }
+  #controls .key { display: inline-block; min-width: 56px; color: var(--fg); }
+
+  #loading {
+    position: absolute;
+    inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg);
+    z-index: 50;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  #loading.hidden { display: none; }
+
+  #search {
+    margin-top: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.05);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    font-size: 12px;
+    box-sizing: border-box;
+  }
+  #search:focus { outline: none; border-color: var(--accent); }
+
+  #tooltip {
+    position: absolute;
+    pointer-events: none;
+    padding: 4px 8px;
+    background: rgba(0,0,0,0.85);
+    color: #fff;
+    font-size: 11px;
+    border-radius: 4px;
+    transform: translate(-50%, calc(-100% - 12px));
+    white-space: nowrap;
+    display: none;
+    z-index: 30;
+  }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="loading">Loading model and pile data…</div>
+
+  <div id="header" class="panel">
+    <div>
+      <div class="title">Midway — TT24-10195 Foundation Layout</div>
+      <div class="stats" id="stats"></div>
+    </div>
+    <div>
+      <input id="search" type="search" placeholder="Search serial (e.g. P-0123)" autocomplete="off" />
+    </div>
+  </div>
+
+  <div id="legend" class="panel">
+    <h3>Post Type Legend</h3>
+    <div id="legend-rows"></div>
+  </div>
+
+  <div id="groups" class="panel">
+    <h3>Groups</h3>
+    <div id="group-rows"></div>
+  </div>
+
+  <div id="controls" class="panel">
+    <div><span class="key">Drag</span> Rotate</div>
+    <div><span class="key">Right-drag</span> Pan</div>
+    <div><span class="key">Scroll</span> Zoom</div>
+    <div><span class="key">Click</span> Pile details</div>
+  </div>
+
+  <div id="info" class="panel">
+    <button class="close" id="info-close" aria-label="Close">×</button>
+    <div class="head">
+      <div class="swatch" id="info-swatch"></div>
+      <div class="serial" id="info-serial">P-0000</div>
+    </div>
+    <div class="row"><span class="k">Group</span><span class="v" id="info-group">—</span></div>
+    <div class="row"><span class="k">Post Type</span><span class="v" id="info-type">—</span></div>
+    <div class="row"><span class="k">Shape</span><span class="v" id="info-shape">—</span></div>
+    <div class="row"><span class="k">Embedment</span><span class="v" id="info-embed">—</span></div>
+    <div class="row"><span class="k">Length</span><span class="v" id="info-length">—</span></div>
+    <div class="row"><span class="k">Color</span><span class="v" id="info-color">—</span></div>
+    <div class="row"><span class="k">Surface elev.</span><span class="v" id="info-y">—</span></div>
+  </div>
+
+  <div id="tooltip"></div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./assets/three.module-C7ia6f3T.js",
+      "three/addons/loaders/GLTFLoader.js": "./assets/GLTFLoader-CGtRWvqK.js",
+      "three/addons/controls/OrbitControls.js": "./assets/OrbitControls-Bk8Ii4mF.js"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const $ = (id) => document.getElementById(id);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    $("app").appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a14);
+    scene.fog = new THREE.Fog(0x0a0a14, 8, 40);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.05, 200);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 0.4;
+    controls.maxDistance = 25;
+    controls.maxPolarAngle = Math.PI * 0.495;
+
+    // Lighting tuned to show a natural-looking terrain.
+    scene.add(new THREE.HemisphereLight(0xc6d3ff, 0x1a1a25, 0.7));
+    const sun = new THREE.DirectionalLight(0xfff4e6, 1.1);
+    sun.position.set(8, 14, 6);
+    scene.add(sun);
+    const fill = new THREE.DirectionalLight(0xb6c8ff, 0.35);
+    fill.position.set(-6, 6, -4);
+    scene.add(fill);
+
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    let terrain = null;
+    let pileMesh = null;        // InstancedMesh of all pile spheres
+    let pileData = [];          // [{serial, group, color, hex, postType, ..., position}]
+    let visibleMask = [];       // bool per pile (toggled by legend/group filters)
+    let markerFloatHeight = 0;  // y-offset from surface to sphere center
+    let markerRadius = 0;
+    const colorFilter = new Set();   // colors hidden
+    const groupFilter = new Set();   // groups hidden
+
+    // ---- Load ---------------------------------------------------------------
+    const loader = new GLTFLoader();
+    Promise.all([
+      new Promise((res, rej) => loader.load("models/midway.glb", res, undefined, rej)),
+      fetch("data/piles.json").then(r => {
+        if (!r.ok) throw new Error("Failed to load piles.json (HTTP " + r.status + ")");
+        return r.json();
+      }),
+    ])
+    .then(([gltf, data]) => {
+      // -- Add model to scene
+      const root = gltf.scene;
+      // Apply a subtle material tweak so the surface reads as a topography
+      root.traverse((obj) => {
+        if (obj.isMesh) {
+          obj.castShadow = false;
+          obj.receiveShadow = false;
+          // Soften any flat materials
+          if (obj.material) {
+            obj.material.metalness = 0;
+            if (obj.material.roughness !== undefined) obj.material.roughness = 0.95;
+            obj.material.side = THREE.DoubleSide;
+            obj.material.needsUpdate = true;
+          }
+          terrain = obj; // grab any mesh for raycasting; if multiple, we'll union below
+        }
+      });
+      scene.add(root);
+
+      // Compute bounding box of the model in world space
+      const bbox = new THREE.Box3().setFromObject(root);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      bbox.getSize(size);
+      bbox.getCenter(center);
+
+      // Frame the camera
+      const radius = Math.max(size.x, size.z) * 1.0;
+      camera.position.set(center.x + radius * 0.9, center.y + size.y + radius * 0.8, center.z + radius * 0.9);
+      controls.target.set(center.x, center.y + size.y * 0.3, center.z);
+      controls.update();
+
+      // -- Map pile PDF coords -> world XZ inside model bbox, preserving aspect.
+      const pdf = data.meta.pdfBounds;
+      const pdfW = pdf.maxX - pdf.minX;
+      const pdfH = pdf.maxY - pdf.minY;
+      // Use 92% of model footprint as the layout extent (so dots aren't right at edge)
+      const useW = size.x * 0.92;
+      const useH = size.z * 0.92;
+      const sFit = Math.min(useW / pdfW, useH / pdfH);
+      const layoutW = pdfW * sFit;
+      const layoutH = pdfH * sFit;
+      const cx0 = center.x - layoutW / 2;
+      const cz0 = center.z - layoutH / 2;
+
+      // Build a list of all meshes to raycast against (terrain may be a group)
+      const rayTargets = [];
+      root.traverse((o) => { if (o.isMesh) rayTargets.push(o); });
+
+      const downRay = new THREE.Raycaster();
+      const downDir = new THREE.Vector3(0, -1, 0);
+      const yAbove = bbox.max.y + 0.5;
+      const yBelow = bbox.min.y - 0.5;
+
+      // Build pile records with computed world positions
+      pileData = data.piles.map((p) => {
+        const lx = (p.cx - pdf.minX) * sFit + cx0;
+        // PDF Y increases downward; flip to model Z so layout is upright on the surface.
+        const lz = (pdf.maxY - p.cy) * sFit + cz0;
+        const origin = new THREE.Vector3(lx, yAbove, lz);
+        downRay.set(origin, downDir);
+        const hits = downRay.intersectObjects(rayTargets, false);
+        const y = hits.length ? hits[0].point.y : (bbox.min.y + size.y * 0.5);
+        return {
+          ...p,
+          position: new THREE.Vector3(lx, y, lz),
+        };
+      });
+
+      visibleMask = new Array(pileData.length).fill(true);
+
+      // -- Build InstancedMesh of pile markers
+      // Marker is a small "lollipop": a vertical stalk + a flat disc on top.
+      // We use a low-poly sphere for performance and per-instance colors.
+      markerRadius = Math.max(0.012, size.x * 0.004);
+      const markerGeo = new THREE.SphereGeometry(markerRadius, 14, 10);
+      const markerMat = new THREE.MeshStandardMaterial({
+        roughness: 0.35,
+        metalness: 0.15,
+        emissive: 0x000000,
+      });
+      pileMesh = new THREE.InstancedMesh(markerGeo, markerMat, pileData.length);
+      pileMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      // Per-instance color
+      pileMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(pileData.length * 3), 3);
+      pileMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
+      const dummy = new THREE.Object3D();
+      const tmpColor = new THREE.Color();
+      markerFloatHeight = markerRadius * 1.6; // float just above surface
+      const floatHeight = markerFloatHeight;
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        dummy.position.set(p.position.x, p.position.y + floatHeight, p.position.z);
+        dummy.scale.setScalar(1);
+        dummy.updateMatrix();
+        pileMesh.setMatrixAt(i, dummy.matrix);
+        tmpColor.set(p.hex || "#888");
+        pileMesh.setColorAt(i, tmpColor);
+      }
+      pileMesh.instanceMatrix.needsUpdate = true;
+      if (pileMesh.instanceColor) pileMesh.instanceColor.needsUpdate = true;
+      scene.add(pileMesh);
+
+      // Add thin "stalks" beneath each pile for a "pegged" look using LineSegments
+      const stalkPos = new Float32Array(pileData.length * 6);
+      const stalkCol = new Float32Array(pileData.length * 6);
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        const baseY = p.position.y;
+        const topY = baseY + floatHeight;
+        stalkPos[i*6+0] = p.position.x; stalkPos[i*6+1] = baseY; stalkPos[i*6+2] = p.position.z;
+        stalkPos[i*6+3] = p.position.x; stalkPos[i*6+4] = topY;  stalkPos[i*6+5] = p.position.z;
+        tmpColor.set(p.hex || "#888");
+        stalkCol[i*6+0] = tmpColor.r; stalkCol[i*6+1] = tmpColor.g; stalkCol[i*6+2] = tmpColor.b;
+        stalkCol[i*6+3] = tmpColor.r; stalkCol[i*6+4] = tmpColor.g; stalkCol[i*6+5] = tmpColor.b;
+      }
+      const stalkGeo = new THREE.BufferGeometry();
+      stalkGeo.setAttribute("position", new THREE.BufferAttribute(stalkPos, 3));
+      stalkGeo.setAttribute("color", new THREE.BufferAttribute(stalkCol, 3));
+      const stalkMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 });
+      const stalks = new THREE.LineSegments(stalkGeo, stalkMat);
+      scene.add(stalks);
+      pileMesh.userData.stalks = stalks;
+
+      // Highlight ring (used when a pile is selected)
+      const ringGeo = new THREE.RingGeometry(markerRadius * 1.4, markerRadius * 2.0, 28);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.visible = false;
+      scene.add(ring);
+      pileMesh.userData.ring = ring;
+
+      // -- UI panels
+      buildLegendUI(data.meta);
+      buildGroupUI(data.meta);
+      $("stats").textContent = `${pileData.length} piles · ${Object.keys(data.meta.groupCounts).length} groups`;
+
+      $("loading").classList.add("hidden");
+    })
+    .catch((err) => {
+      console.error(err);
+      $("loading").textContent = "Failed to load: " + (err.message || err);
+    });
+
+    // ---- UI -----------------------------------------------------------------
+    function buildLegendUI(meta) {
+      const container = $("legend-rows");
+      container.innerHTML = "";
+      meta.legend.forEach((row) => {
+        const count = meta.colorCounts[row.color] || 0;
+        const el = document.createElement("div");
+        el.className = "legend-row";
+        el.dataset.color = row.color;
+        el.innerHTML = `
+          <div class="swatch" style="background:${row.hex}"></div>
+          <div>
+            <div class="name">${row.color}</div>
+            <div class="type">${row.postType}</div>
+          </div>
+          <div class="count">${count}</div>
+          <div class="count">${row.length}"</div>
+        `;
+        el.addEventListener("click", () => {
+          if (colorFilter.has(row.color)) colorFilter.delete(row.color);
+          else colorFilter.add(row.color);
+          el.classList.toggle("off");
+          applyFilters();
+        });
+        container.appendChild(el);
+      });
+    }
+    function buildGroupUI(meta) {
+      const order = ["N1","N2","N3","N4","N5","N6","N7-A","N7-B","N8","N9"];
+      const container = $("group-rows");
+      container.innerHTML = "";
+      order.forEach((g) => {
+        const count = meta.groupCounts[g] || 0;
+        if (count === 0) return;
+        const el = document.createElement("div");
+        el.className = "group-row";
+        el.dataset.group = g;
+        el.innerHTML = `<span>${g}</span><span class="count">${count}</span>`;
+        el.addEventListener("click", () => {
+          if (groupFilter.has(g)) groupFilter.delete(g);
+          else groupFilter.add(g);
+          el.classList.toggle("off");
+          applyFilters();
+        });
+        container.appendChild(el);
+      });
+    }
+
+    const _matrix = new THREE.Matrix4();
+    const _scaleVisible = new THREE.Vector3(1, 1, 1);
+    const _scaleHidden = new THREE.Vector3(0.0001, 0.0001, 0.0001);
+    function applyFilters() {
+      if (!pileMesh) return;
+      let visibleCount = 0;
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        const isVisible = !colorFilter.has(p.color) && !groupFilter.has(p.group);
+        visibleMask[i] = isVisible;
+        _matrix.makeTranslation(p.position.x, p.position.y + markerFloatHeight, p.position.z);
+        _matrix.scale(isVisible ? _scaleVisible : _scaleHidden);
+        pileMesh.setMatrixAt(i, _matrix);
+        if (isVisible) visibleCount++;
+      }
+      pileMesh.instanceMatrix.needsUpdate = true;
+      $("stats").textContent = `${visibleCount} / ${pileData.length} piles visible`;
+    }
+
+    // ---- Interaction --------------------------------------------------------
+    let hoverIndex = -1;
+    let selectedIndex = -1;
+
+    function onPointerMove(e) {
+      if (!pileMesh) return;
+      const r = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObject(pileMesh);
+      const hit = hits.find(h => visibleMask[h.instanceId]);
+      if (hit) {
+        const idx = hit.instanceId;
+        if (idx !== hoverIndex) {
+          hoverIndex = idx;
+          renderer.domElement.style.cursor = "pointer";
+          const p = pileData[idx];
+          const tip = $("tooltip");
+          tip.style.display = "block";
+          tip.style.left = e.clientX + "px";
+          tip.style.top = e.clientY + "px";
+          tip.textContent = `${p.serial} · ${p.group} · ${p.postType}`;
+        } else {
+          $("tooltip").style.left = e.clientX + "px";
+          $("tooltip").style.top = e.clientY + "px";
+        }
+      } else if (hoverIndex !== -1) {
+        hoverIndex = -1;
+        renderer.domElement.style.cursor = "";
+        $("tooltip").style.display = "none";
+      }
+    }
+    renderer.domElement.addEventListener("pointermove", onPointerMove);
+
+    function selectPile(index) {
+      selectedIndex = index;
+      const p = pileData[index];
+      $("info-serial").textContent = p.serial;
+      $("info-group").textContent = p.group || "—";
+      $("info-type").textContent = p.postType || "—";
+      $("info-shape").textContent = p.shape || "—";
+      $("info-embed").textContent = (p.embedment != null) ? (p.embedment + ' ft') : "—";
+      $("info-length").textContent = (p.length != null) ? (p.length + '"') : "—";
+      $("info-color").textContent = p.color;
+      $("info-y").textContent = p.position.y.toFixed(3);
+      $("info-swatch").style.background = p.hex;
+      $("info").classList.add("shown");
+
+      // Move highlight ring to selected pile
+      const ring = pileMesh.userData.ring;
+      if (ring) {
+        ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
+        ring.visible = true;
+      }
+    }
+
+    renderer.domElement.addEventListener("click", (e) => {
+      if (!pileMesh) return;
+      const r = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObject(pileMesh);
+      const hit = hits.find(h => visibleMask[h.instanceId]);
+      if (hit) selectPile(hit.instanceId);
+    });
+
+    $("info-close").addEventListener("click", () => {
+      $("info").classList.remove("shown");
+      if (pileMesh && pileMesh.userData.ring) pileMesh.userData.ring.visible = false;
+      selectedIndex = -1;
+    });
+
+    $("search").addEventListener("input", (e) => {
+      const q = e.target.value.trim().toUpperCase();
+      if (!q || !pileData.length) return;
+      // Find by serial (P-XXXX) or just digits
+      let target = pileData.find(p => p.serial === q);
+      if (!target) {
+        const digits = q.replace(/\D+/g, "");
+        if (digits) {
+          const padded = "P-" + digits.padStart(4, "0");
+          target = pileData.find(p => p.serial === padded);
+        }
+      }
+      if (target) {
+        const idx = pileData.indexOf(target);
+        selectPile(idx);
+        // Tween camera target to the pile
+        const t = controls.target;
+        const targetVec = new THREE.Vector3(target.position.x, target.position.y, target.position.z);
+        const start = t.clone();
+        const startCam = camera.position.clone();
+        const offset = camera.position.clone().sub(start);
+        const dist = offset.length();
+        const desired = 0.6;
+        const newOffset = offset.normalize().multiplyScalar(Math.min(dist, Math.max(desired, dist * 0.5)));
+        const endCam = targetVec.clone().add(newOffset);
+        const t0 = performance.now();
+        function step() {
+          const k = Math.min(1, (performance.now() - t0) / 700);
+          const e = 1 - Math.pow(1 - k, 3);
+          t.lerpVectors(start, targetVec, e);
+          camera.position.lerpVectors(startCam, endCam, e);
+          controls.update();
+          if (k < 1) requestAnimationFrame(step);
+        }
+        step();
+      }
+    });
+
+    // ---- Resize + animate --------------------------------------------------
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      // Pulse the ring on the selected pile
+      if (pileMesh && pileMesh.userData.ring && pileMesh.userData.ring.visible) {
+        const s = 1 + Math.sin(performance.now() * 0.006) * 0.12;
+        pileMesh.userData.ring.scale.set(s, 1, s);
+      }
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
