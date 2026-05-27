@@ -370,6 +370,7 @@
 
       const dummy = new THREE.Object3D();
       const tmpColor = new THREE.Color();
+      const whiteColor = new THREE.Color("#ffffff");
       markerFloatHeight = markerRadius * 1.6; // float just above surface
       const floatHeight = markerFloatHeight;
       for (let i = 0; i < pileData.length; i++) {
@@ -378,8 +379,7 @@
         dummy.scale.setScalar(1);
         dummy.updateMatrix();
         pileMesh.setMatrixAt(i, dummy.matrix);
-        tmpColor.set(p.hex || "#888");
-        pileMesh.setColorAt(i, tmpColor);
+        pileMesh.setColorAt(i, whiteColor);
       }
       pileMesh.instanceMatrix.needsUpdate = true;
       if (pileMesh.instanceColor) pileMesh.instanceColor.needsUpdate = true;
@@ -394,9 +394,8 @@
         const topY = baseY + floatHeight;
         stalkPos[i*6+0] = p.position.x; stalkPos[i*6+1] = baseY; stalkPos[i*6+2] = p.position.z;
         stalkPos[i*6+3] = p.position.x; stalkPos[i*6+4] = topY;  stalkPos[i*6+5] = p.position.z;
-        tmpColor.set(p.hex || "#888");
-        stalkCol[i*6+0] = tmpColor.r; stalkCol[i*6+1] = tmpColor.g; stalkCol[i*6+2] = tmpColor.b;
-        stalkCol[i*6+3] = tmpColor.r; stalkCol[i*6+4] = tmpColor.g; stalkCol[i*6+5] = tmpColor.b;
+        stalkCol[i*6+0] = 1; stalkCol[i*6+1] = 1; stalkCol[i*6+2] = 1;
+        stalkCol[i*6+3] = 1; stalkCol[i*6+4] = 1; stalkCol[i*6+5] = 1;
       }
       const stalkGeo = new THREE.BufferGeometry();
       stalkGeo.setAttribute("position", new THREE.BufferAttribute(stalkPos, 3));
