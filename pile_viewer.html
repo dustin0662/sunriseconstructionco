@@ -163,6 +163,146 @@
     display: none;
     z-index: 30;
   }
+
+  /* Admin / info panel additions */
+  body.readonly .admin-only { display: none !important; }
+
+  #mode-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    margin-left: 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: rgba(249,115,22,0.2);
+    color: #f97316;
+    border: 1px solid rgba(249,115,22,0.4);
+  }
+  body.readonly #mode-badge {
+    background: rgba(34,197,94,0.18);
+    color: #4ade80;
+    border-color: rgba(34,197,94,0.4);
+  }
+
+  #toolbar {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .btn {
+    background: rgba(255,255,255,0.06);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    line-height: 1.2;
+    font-family: inherit;
+  }
+  .btn:hover { background: rgba(255,255,255,0.1); }
+  .btn.primary {
+    background: rgba(249,115,22,0.25);
+    border-color: rgba(249,115,22,0.5);
+    color: #ffe7d4;
+  }
+  .btn.primary:hover { background: rgba(249,115,22,0.4); }
+  .btn.danger {
+    background: rgba(220,38,38,0.18);
+    border-color: rgba(220,38,38,0.4);
+    color: #fca5a5;
+  }
+  .btn.danger:hover { background: rgba(220,38,38,0.3); }
+
+  #info {
+    max-height: calc(100% - 24px);
+    overflow-y: auto;
+  }
+  #info .edit-row {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  #info .edit-row label {
+    color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  #info .edit-row input[type="text"] {
+    background: rgba(255,255,255,0.05);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 12.5px;
+    font-family: inherit;
+  }
+  #info .edit-row input[type="text"]:focus {
+    outline: none; border-color: var(--accent);
+  }
+  #info .photo-wrap {
+    margin-top: 10px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.3);
+    aspect-ratio: 4/3;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  #info .photo-wrap img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  #info .photo-wrap .placeholder {
+    color: var(--muted); font-size: 11px;
+  }
+  #info .photo-actions {
+    display: flex; gap: 6px; margin-top: 8px;
+  }
+  #info .button-row {
+    display: flex; gap: 6px; margin-top: 12px;
+  }
+  #info .button-row .btn { flex: 1; }
+
+  #share-panel {
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 12px;
+    font-size: 12px;
+    display: flex; gap: 6px; align-items: center;
+  }
+  #share-panel .count {
+    color: var(--muted);
+    margin-right: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #toast {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 14px;
+    background: rgba(20,24,38,0.95);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    color: var(--fg);
+    font-size: 12.5px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 100;
+  }
+  #toast.shown { opacity: 1; }
+
+  .has-photo-indicator {
+    color: #f97316;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(249,115,22,0.15);
+    border: 1px solid rgba(249,115,22,0.4);
+  }
 </style>
 </head>
 <body>
@@ -172,7 +312,10 @@
 
   <div id="header" class="panel">
     <div>
-      <div class="title">Midway — TT24-10195 Foundation Layout</div>
+      <div class="title">
+        Midway — TT24-10195 Foundation Layout
+        <span id="mode-badge">Admin</span>
+      </div>
       <div class="stats" id="stats"></div>
     </div>
     <div>
@@ -201,8 +344,26 @@
     <button class="close" id="info-close" aria-label="Close">×</button>
     <div class="head">
       <div class="swatch" id="info-swatch"></div>
-      <div class="serial" id="info-serial">P-0000</div>
+      <div>
+        <div class="serial" id="info-serial">P-0000</div>
+        <div id="info-photo-tag" style="display:none; margin-top: 4px;"><span class="has-photo-indicator">PHOTO</span></div>
+      </div>
     </div>
+
+    <div class="photo-wrap" id="info-photo-wrap">
+      <div class="placeholder">No photo</div>
+    </div>
+    <div class="photo-actions admin-only">
+      <input type="file" id="photo-input" accept="image/*" style="display:none" />
+      <button class="btn" id="photo-upload-btn">Upload photo</button>
+      <button class="btn danger" id="photo-clear-btn">Clear</button>
+    </div>
+
+    <div class="edit-row admin-only">
+      <label for="serial-input">Serial number</label>
+      <input type="text" id="serial-input" placeholder="P-0001" maxlength="64" />
+    </div>
+
     <div class="row"><span class="k">Group</span><span class="v" id="info-group">—</span></div>
     <div class="row"><span class="k">Post Type</span><span class="v" id="info-type">—</span></div>
     <div class="row"><span class="k">Shape</span><span class="v" id="info-shape">—</span></div>
@@ -210,7 +371,24 @@
     <div class="row"><span class="k">Length</span><span class="v" id="info-length">—</span></div>
     <div class="row"><span class="k">Color</span><span class="v" id="info-color">—</span></div>
     <div class="row"><span class="k">Surface elev.</span><span class="v" id="info-y">—</span></div>
+    <div class="row"><span class="k">Pile ID</span><span class="v" id="info-pid" style="font-size:10.5px; color: var(--muted)">—</span></div>
+
+    <div class="button-row admin-only">
+      <button class="btn primary" id="info-save">Save</button>
+      <button class="btn danger" id="info-reset">Reset</button>
+    </div>
   </div>
+
+  <div id="share-panel" class="panel">
+    <span class="count" id="assign-count">0 assigned</span>
+    <button class="btn" id="btn-copy-link">Copy read-only link</button>
+    <button class="btn admin-only" id="btn-export">Export JSON</button>
+    <button class="btn admin-only" id="btn-import">Import JSON</button>
+    <input type="file" id="import-input" accept="application/json" style="display:none" />
+    <button class="btn admin-only danger" id="btn-clear-all">Clear all</button>
+  </div>
+
+  <div id="toast"></div>
 
   <div id="tooltip"></div>
 
@@ -230,6 +408,81 @@
     import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
     const $ = (id) => document.getElementById(id);
+
+    // ---- Mode + assignment storage -----------------------------------------
+    const urlParams = new URLSearchParams(window.location.search);
+    const READONLY = urlParams.get("view") === "readonly";
+    if (READONLY) {
+      document.body.classList.add("readonly");
+      $("mode-badge").textContent = "Read-only";
+    }
+
+    const STORAGE_KEY = "midway_pile_assignments_v1";
+    // assignments: { [pileId]: { serial?: string, photo?: dataURL, updatedAt: number } }
+    let assignments = {};
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) assignments = JSON.parse(raw) || {};
+    } catch (_) { assignments = {}; }
+
+    function saveAssignments() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(assignments));
+      } catch (err) {
+        toast("Storage full. Export and clear to free space.", 4000);
+        console.error(err);
+      }
+    }
+
+    function assignedCount() {
+      return Object.keys(assignments).filter(k => {
+        const a = assignments[k];
+        return a && (a.photo || a.serial);
+      }).length;
+    }
+    function updateAssignedCount() {
+      $("assign-count").textContent = assignedCount() + " assigned";
+    }
+
+    function displaySerial(p) {
+      const a = assignments[p.pileId];
+      return (a && a.serial) ? a.serial : p.serial;
+    }
+    function hasPhoto(p) {
+      const a = assignments[p.pileId];
+      return !!(a && a.photo);
+    }
+
+    function toast(msg, ms = 2200) {
+      const t = $("toast");
+      t.textContent = msg;
+      t.classList.add("shown");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => t.classList.remove("shown"), ms);
+    }
+
+    // Resize a File to a JPEG data URL, max 800px on long edge.
+    function fileToResizedDataURL(file, maxEdge = 800, quality = 0.78) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
+          const w = Math.round(img.naturalWidth * scale);
+          const h = Math.round(img.naturalHeight * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          try {
+            resolve(canvas.toDataURL("image/jpeg", quality));
+          } catch (e) { reject(e); }
+        };
+        img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+        img.src = url;
+      });
+    }
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
@@ -279,8 +532,17 @@
         if (!r.ok) throw new Error("Failed to load piles.json (HTTP " + r.status + ")");
         return r.json();
       }),
+      // Optional committed assignments. Missing file is fine.
+      fetch("data/pile_assignments.json").then(r => r.ok ? r.json() : null).catch(() => null),
     ])
-    .then(([gltf, data]) => {
+    .then(([gltf, data, committed]) => {
+      // Merge committed -> localStorage takes precedence so admin edits "win" locally.
+      if (committed && typeof committed === "object" && committed.assignments) {
+        for (const [k, v] of Object.entries(committed.assignments)) {
+          if (!assignments[k]) assignments[k] = v;
+        }
+      }
+      updateAssignedCount();
       // -- Add model to scene
       const root = gltf.scene;
       // Apply a subtle material tweak so the surface reads as a topography
@@ -346,6 +608,7 @@
         const y = hits.length ? hits[0].point.y : (bbox.min.y + size.y * 0.5);
         return {
           ...p,
+          pileId: p.serial,   // stable id keyed off the auto-assigned serial; survives serial overrides
           position: new THREE.Vector3(lx, y, lz),
         };
       });
@@ -515,7 +778,8 @@
           tip.style.display = "block";
           tip.style.left = e.clientX + "px";
           tip.style.top = e.clientY + "px";
-          tip.textContent = `${p.serial} · ${p.group} · ${p.postType}`;
+          const photoBadge = hasPhoto(p) ? " 📷" : "";
+          tip.textContent = `${displaySerial(p)} · ${p.group} · ${p.postType}${photoBadge}`;
         } else {
           $("tooltip").style.left = e.clientX + "px";
           $("tooltip").style.top = e.clientY + "px";
@@ -531,7 +795,8 @@
     function selectPile(index) {
       selectedIndex = index;
       const p = pileData[index];
-      $("info-serial").textContent = p.serial;
+      const a = assignments[p.pileId] || {};
+      $("info-serial").textContent = a.serial || p.serial;
       $("info-group").textContent = p.group || "—";
       $("info-type").textContent = p.postType || "—";
       $("info-shape").textContent = p.shape || "—";
@@ -539,7 +804,28 @@
       $("info-length").textContent = (p.length != null) ? (p.length + '"') : "—";
       $("info-color").textContent = p.color;
       $("info-y").textContent = p.position.y.toFixed(3);
+      $("info-pid").textContent = p.pileId;
       $("info-swatch").style.background = p.hex;
+      // Photo
+      const photoWrap = $("info-photo-wrap");
+      photoWrap.innerHTML = "";
+      if (a.photo) {
+        const img = document.createElement("img");
+        img.src = a.photo;
+        img.alt = p.pileId;
+        photoWrap.appendChild(img);
+        $("info-photo-tag").style.display = "";
+      } else {
+        const ph = document.createElement("div");
+        ph.className = "placeholder";
+        ph.textContent = READONLY ? "No photo" : "No photo — click Upload";
+        photoWrap.appendChild(ph);
+        $("info-photo-tag").style.display = "none";
+      }
+      // Serial input value
+      $("serial-input").value = a.serial || "";
+      $("serial-input").placeholder = p.serial;
+
       $("info").classList.add("shown");
 
       // Move highlight ring to selected pile
@@ -548,6 +834,11 @@
         ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
         ring.visible = true;
       }
+    }
+
+    function refreshSelected() {
+      if (selectedIndex >= 0) selectPile(selectedIndex);
+      updateAssignedCount();
     }
 
     renderer.domElement.addEventListener("click", (e) => {
@@ -567,11 +858,147 @@
       selectedIndex = -1;
     });
 
+    // ---- Admin edit handlers -----------------------------------------------
+    $("photo-upload-btn").addEventListener("click", () => $("photo-input").click());
+
+    $("photo-input").addEventListener("change", async (e) => {
+      if (READONLY) return;
+      const file = e.target.files && e.target.files[0];
+      if (!file || selectedIndex < 0) return;
+      try {
+        const dataURL = await fileToResizedDataURL(file, 800, 0.78);
+        const p = pileData[selectedIndex];
+        const a = assignments[p.pileId] || {};
+        a.photo = dataURL;
+        a.updatedAt = Date.now();
+        assignments[p.pileId] = a;
+        saveAssignments();
+        refreshSelected();
+        toast("Photo saved");
+      } catch (err) {
+        console.error(err);
+        toast("Could not load image", 3000);
+      }
+      e.target.value = "";
+    });
+
+    $("photo-clear-btn").addEventListener("click", () => {
+      if (READONLY || selectedIndex < 0) return;
+      const p = pileData[selectedIndex];
+      const a = assignments[p.pileId];
+      if (a && a.photo) {
+        delete a.photo;
+        if (!a.serial) delete assignments[p.pileId];
+        else a.updatedAt = Date.now();
+        saveAssignments();
+        refreshSelected();
+        toast("Photo removed");
+      }
+    });
+
+    $("info-save").addEventListener("click", () => {
+      if (READONLY || selectedIndex < 0) return;
+      const p = pileData[selectedIndex];
+      const sv = $("serial-input").value.trim();
+      const a = assignments[p.pileId] || {};
+      if (sv && sv !== p.serial) {
+        a.serial = sv;
+      } else {
+        delete a.serial;
+      }
+      a.updatedAt = Date.now();
+      if (!a.serial && !a.photo) delete assignments[p.pileId];
+      else assignments[p.pileId] = a;
+      saveAssignments();
+      refreshSelected();
+      toast("Saved");
+    });
+
+    $("info-reset").addEventListener("click", () => {
+      if (READONLY || selectedIndex < 0) return;
+      const p = pileData[selectedIndex];
+      if (assignments[p.pileId]) {
+        delete assignments[p.pileId];
+        saveAssignments();
+        refreshSelected();
+        toast("Reset to defaults");
+      }
+    });
+
+    // ---- Share / export / import -------------------------------------------
+    $("btn-copy-link").addEventListener("click", async () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", "readonly");
+      const link = url.toString();
+      try {
+        await navigator.clipboard.writeText(link);
+        toast("Read-only link copied to clipboard");
+      } catch (_) {
+        // Fallback: prompt
+        window.prompt("Read-only link:", link);
+      }
+    });
+
+    $("btn-export").addEventListener("click", () => {
+      const out = {
+        project: "Midway",
+        exportedAt: new Date().toISOString(),
+        assignments,
+      };
+      const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "pile_assignments.json";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      toast("Downloaded pile_assignments.json");
+    });
+
+    $("btn-import").addEventListener("click", () => $("import-input").click());
+
+    $("import-input").addEventListener("change", async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try {
+        const txt = await file.text();
+        const parsed = JSON.parse(txt);
+        const incoming = parsed.assignments || parsed;
+        if (typeof incoming !== "object" || !incoming) throw new Error("bad shape");
+        let merged = 0;
+        for (const [k, v] of Object.entries(incoming)) {
+          if (!v) continue;
+          assignments[k] = { ...(assignments[k] || {}), ...v };
+          merged++;
+        }
+        saveAssignments();
+        refreshSelected();
+        toast(`Imported ${merged} assignments`);
+      } catch (err) {
+        console.error(err);
+        toast("Import failed: " + (err.message || err), 4000);
+      }
+      e.target.value = "";
+    });
+
+    $("btn-clear-all").addEventListener("click", () => {
+      if (READONLY) return;
+      if (!Object.keys(assignments).length) { toast("Nothing to clear"); return; }
+      if (!confirm("Clear all local assignments? This cannot be undone.")) return;
+      assignments = {};
+      saveAssignments();
+      refreshSelected();
+      toast("Cleared local assignments");
+    });
+
     $("search").addEventListener("input", (e) => {
       const q = e.target.value.trim().toUpperCase();
       if (!q || !pileData.length) return;
-      // Find by serial (P-XXXX) or just digits
-      let target = pileData.find(p => p.serial === q);
+      // Match by override serial first, then by auto-assigned serial / digits
+      let target = pileData.find(p => {
+        const a = assignments[p.pileId];
+        return (a && a.serial && a.serial.toUpperCase() === q) || p.serial === q;
+      });
       if (!target) {
         const digits = q.replace(/\D+/g, "");
         if (digits) {
