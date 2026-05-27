@@ -418,6 +418,10 @@
       <button class="btn primary" id="btn-anchor">2-pt anchor</button>
       <button class="btn" id="btn-align-reset">Reset</button>
     </div>
+    <div class="align-buttons">
+      <button class="btn" id="btn-kmz-align">Use KMZ georef</button>
+      <button class="btn" id="btn-toggle-overlay">Show CAD overlay</button>
+    </div>
     <div id="anchor-status" class="anchor-status">Tip: drag sliders, or use 2-pt anchor to align by clicking two reference points.</div>
   </div>
 
@@ -617,7 +621,7 @@
     // Layout transform (PDF coords -> world XZ). baseScale is the auto-fit
     // scale; the editable transform layers tx/tz/rotDeg/scale on top of that.
     const TRANSFORM_KEY = "midway_pile_transform_v1";
-    let transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1 };
+    let transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
     let layoutCtx = null; // { baseScale, pdfCenterX, pdfCenterY, modelCenterX, modelCenterZ, bbox, rayTargets }
     try {
       const raw = localStorage.getItem(TRANSFORM_KEY);
@@ -643,8 +647,11 @@
       fetch("data/pile_assignments.json").then(r => r.ok ? r.json() : null).catch(() => null),
       // Optional committed alignment transform. Missing file is fine.
       fetch("data/pile_transform.json").then(r => r.ok ? r.json() : null).catch(() => null),
+      // Optional KMZ georeference (lat/lon overlays + borings).
+      fetch("data/kmz_reference.json").then(r => r.ok ? r.json() : null).catch(() => null),
     ])
-    .then(([gltf, data, committed, committedTransform]) => {
+    .then(([gltf, data, committed, committedTransform, kmz]) => {
+      window.__kmz = kmz;
       // Merge committed -> localStorage takes precedence so admin edits "win" locally.
       if (committed && typeof committed === "object" && committed.assignments) {
         for (const [k, v] of Object.entries(committed.assignments)) {
@@ -657,6 +664,7 @@
         if (!hasLocal) transform = { ...transform, ...committedTransform };
       }
       updateAssignedCount();
+      window.__pdfBounds = data.meta.pdfBounds;
       // -- Add model to scene
       const root = gltf.scene;
       // Apply a subtle material tweak so the surface reads as a topography
@@ -818,8 +826,10 @@
     const _downDir = new THREE.Vector3(0, -1, 0);
     function pdfToWorldXZ(srcX, srcY) {
       const ctx = layoutCtx;
-      const dx = (srcX - ctx.pdfCenterX) * ctx.baseScale * transform.scale;
-      const dz = -(srcY - ctx.pdfCenterY) * ctx.baseScale * transform.scale;
+      const gx = transform.geoStretchX || 1;
+      const gz = transform.geoStretchZ || 1;
+      const dx = (srcX - ctx.pdfCenterX) * ctx.baseScale * transform.scale * gx;
+      const dz = -(srcY - ctx.pdfCenterY) * ctx.baseScale * transform.scale * gz;
       const rad = transform.rotDeg * Math.PI / 180;
       const c = Math.cos(rad), s = Math.sin(rad);
       const rx = dx * c - dz * s;
@@ -879,7 +889,7 @@
       updateAlignSliderLabels();
     }
     function resetTransform() {
-      transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1 };
+      transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
       applyTransform();
       syncAlignUIFromTransform();
     }
@@ -1223,6 +1233,128 @@
       resetTransform();
       toast("Alignment reset");
     });
+
+    // ---- KMZ georeference --------------------------------------------------
+    // Mapping uses the combined CAD-overlay lat/lon bbox as the geographic
+    // frame, and assumes the model's XZ bbox covers that same frame. The
+    // result is far better than naive PDF→bbox fit because we use real
+    // meter-scale aspect (longitude scaled by cos(lat)).
+    function kmzAlign() {
+      const kmz = window.__kmz;
+      if (!kmz || !kmz.combinedOverlayBbox || !layoutCtx) {
+        toast("KMZ reference not loaded");
+        return;
+      }
+      const bb = kmz.combinedOverlayBbox;
+      const pdf = layoutCtx;  // has pdfCenterX, pdfCenterY, baseScale (unused here)
+      // PDF pile bbox from the original data.
+      const pBounds = window.__pdfBounds;
+      if (!pBounds) { toast("Missing PDF bounds"); return; }
+
+      const lonC = (bb.east + bb.west) / 2;
+      const latC = (bb.north + bb.south) / 2;
+      const cosLat = Math.cos(latC * Math.PI / 180);
+      // Geographic span in meters.
+      const lonSpanM = (bb.east - bb.west) * 111320 * cosLat;
+      const latSpanM = (bb.north - bb.south) * 110540;
+
+      // PDF pile bbox dimensions (in PDF points).
+      const pdfW = pBounds.maxX - pBounds.minX;
+      const pdfH = pBounds.maxY - pBounds.minY;
+
+      // Model XZ bbox dimensions.
+      const modelW = layoutCtx.bbox.max.x - layoutCtx.bbox.min.x;
+      const modelD = layoutCtx.bbox.max.z - layoutCtx.bbox.min.z;
+
+      // We need pdfPointToModelUnit. The chain is:
+      //   PDF point -> meters (using overlay frame)
+      //   meters -> model units (using model-frame-assumed-=-overlay-frame)
+      // For a single uniform scale (sliders use uniform scale), fit
+      // longitudinally so the field's width matches.
+      // 1 PDF point ≈ lonSpanM / pdfW meters
+      // 1 meter ≈ modelW / lonSpanM model units (lon direction)
+      // so 1 PDF point ≈ modelW / pdfW model units
+      // That's literally the existing baseScale (PDF→model X), so adjust
+      // to the correct meter aspect by using the geographic mid-axis scale.
+      // We want a SINGLE scale multiplier on top of baseScale that makes
+      // the layout's longitudinal extent equal to the model's longitudinal
+      // span weighted by the geo aspect. In practice the cleanest path is:
+      //   targetMeterPerModelUnit = sqrt(lonSpanM*latSpanM / (modelW*modelD))
+      //   targetMeterPerPdfPt   = sqrt(lonSpanM*latSpanM / (pdfW*pdfH))
+      //   so PDF→model = targetMeterPerPdfPt / targetMeterPerModelUnit
+      //                = sqrt((modelW*modelD)/(pdfW*pdfH))
+      // That's the baseScale already used. KMZ refinement: rotate to align
+      // PDF "up" (north) with the model's north axis. For an unknown
+      // orientation we leave rotation at 0 and let user adjust.
+      // The real value of KMZ here is making sure the layout's *meter
+      // aspect ratio* gets respected: if PDF is taller than geo, we should
+      // squish vertically.
+      const pdfAspect = pdfW / pdfH;
+      const geoAspect = lonSpanM / latSpanM;
+      // Apply an x/z stretch ratio. Since our transform exposes only a
+      // single uniform scale, we instead pre-distort the PDF coordinates
+      // when computing world XZ. We do this via two scale factors stored
+      // on the transform.
+      transform.scale = 1;
+      transform.tx = 0;
+      transform.tz = 0;
+      transform.rotDeg = 0;
+      transform.geoStretchX = 1;
+      transform.geoStretchZ = pdfAspect / geoAspect; // squish Z if PDF taller than geo
+      applyTransform();
+      syncAlignUIFromTransform();
+      toast(`KMZ georef applied (Z stretch ${transform.geoStretchZ.toFixed(3)})`);
+    }
+    $("btn-kmz-align").addEventListener("click", kmzAlign);
+
+    // -- CAD overlay drape --
+    // Drop the KMZ overlay JPEGs onto the terrain at their georeferenced
+    // positions. The model's XZ bbox is treated as the combined overlay
+    // bbox, so each overlay gets a sub-rectangle inside the model's
+    // footprint based on its own lat/lon corners.
+    let cadOverlayGroup = null;
+    function toggleCadOverlay() {
+      const kmz = window.__kmz;
+      if (!kmz || !kmz.overlays || !kmz.combinedOverlayBbox || !layoutCtx) {
+        toast("KMZ reference not loaded");
+        return;
+      }
+      if (cadOverlayGroup) {
+        cadOverlayGroup.visible = !cadOverlayGroup.visible;
+        $("btn-toggle-overlay").textContent = cadOverlayGroup.visible ? "Hide CAD overlay" : "Show CAD overlay";
+        toast(cadOverlayGroup.visible ? "CAD overlay shown" : "CAD overlay hidden");
+        return;
+      }
+      cadOverlayGroup = new THREE.Group();
+      cadOverlayGroup.name = "CAD overlays";
+      const cb = kmz.combinedOverlayBbox;
+      const bbox = layoutCtx.bbox;
+      const modelMinX = bbox.min.x, modelMaxX = bbox.max.x;
+      const modelMinZ = bbox.min.z, modelMaxZ = bbox.max.z;
+      const yPlace = bbox.max.y + 0.001;
+      kmz.overlays.forEach((ov) => {
+        const px = (lon) => modelMinX + (lon - cb.west) / (cb.east - cb.west) * (modelMaxX - modelMinX);
+        const pz = (lat) => modelMinZ + (cb.north - lat) / (cb.north - cb.south) * (modelMaxZ - modelMinZ);
+        const x0 = px(ov.west),  x1 = px(ov.east);
+        const z0 = pz(ov.north), z1 = pz(ov.south);
+        const w = x1 - x0, d = z1 - z0;
+        if (!isFinite(w) || !isFinite(d) || w <= 0 || d <= 0) return;
+        const url = "data/kmz/" + ov.icon;
+        new THREE.TextureLoader().load(url, (tex) => {
+          tex.encoding = THREE.sRGBEncoding;
+          const geo = new THREE.PlaneGeometry(w, d);
+          geo.rotateX(-Math.PI / 2);
+          const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.6, depthWrite: false });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(x0 + w/2, yPlace, z0 + d/2);
+          cadOverlayGroup.add(mesh);
+        });
+      });
+      scene.add(cadOverlayGroup);
+      $("btn-toggle-overlay").textContent = "Hide CAD overlay";
+      toast("CAD overlay drawn from KMZ");
+    }
+    $("btn-toggle-overlay").addEventListener("click", toggleCadOverlay);
 
     // -- Two-point anchor mode --
     // Sequence: pick pile A -> pick target A -> pick pile B -> pick target B
