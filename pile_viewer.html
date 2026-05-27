@@ -293,6 +293,65 @@
   }
   #toast.shown { opacity: 1; }
 
+  #align-panel {
+    top: 70px;
+    right: 210px;
+    width: 260px;
+    padding: 12px 14px;
+    font-size: 12px;
+  }
+  #align-panel h3 {
+    margin: 0 0 8px;
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600;
+  }
+  .align-row {
+    display: grid;
+    grid-template-columns: 64px 1fr 56px;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .align-row label { color: var(--muted); font-size: 11px; }
+  .align-row input[type="range"] {
+    accent-color: var(--accent);
+    width: 100%;
+  }
+  .align-row input[type="number"] {
+    background: rgba(255,255,255,0.05);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 3px 5px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    font-family: inherit;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .align-buttons {
+    display: flex; gap: 6px;
+    margin-top: 8px;
+  }
+  .align-buttons .btn { flex: 1; }
+  .anchor-status {
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 5px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .anchor-status.active {
+    background: rgba(249,115,22,0.15);
+    color: #ffd9b4;
+    border: 1px solid rgba(249,115,22,0.4);
+  }
+
+  body.anchor-pick-pile #app canvas { cursor: crosshair !important; }
+  body.anchor-pick-target #app canvas { cursor: cell !important; }
+
   .has-photo-indicator {
     color: #f97316;
     font-size: 10px;
@@ -331,6 +390,35 @@
   <div id="groups" class="panel">
     <h3>Groups</h3>
     <div id="group-rows"></div>
+  </div>
+
+  <div id="align-panel" class="panel admin-only">
+    <h3>Alignment</h3>
+    <div class="align-row">
+      <label>Translate X</label>
+      <input type="range" id="align-tx" min="-5" max="5" step="0.005" value="0" />
+      <input type="number" id="align-tx-num" step="0.01" value="0" />
+    </div>
+    <div class="align-row">
+      <label>Translate Z</label>
+      <input type="range" id="align-tz" min="-5" max="5" step="0.005" value="0" />
+      <input type="number" id="align-tz-num" step="0.01" value="0" />
+    </div>
+    <div class="align-row">
+      <label>Rotate °</label>
+      <input type="range" id="align-rot" min="-180" max="180" step="0.5" value="0" />
+      <input type="number" id="align-rot-num" step="0.5" value="0" />
+    </div>
+    <div class="align-row">
+      <label>Scale</label>
+      <input type="range" id="align-scale" min="0.3" max="2" step="0.005" value="1" />
+      <input type="number" id="align-scale-num" step="0.01" value="1" />
+    </div>
+    <div class="align-buttons">
+      <button class="btn primary" id="btn-anchor">2-pt anchor</button>
+      <button class="btn" id="btn-align-reset">Reset</button>
+    </div>
+    <div id="anchor-status" class="anchor-status">Tip: drag sliders, or use 2-pt anchor to align by clicking two reference points.</div>
   </div>
 
   <div id="controls" class="panel">
@@ -385,6 +473,7 @@
     <button class="btn admin-only" id="btn-export">Export JSON</button>
     <button class="btn admin-only" id="btn-import">Import JSON</button>
     <input type="file" id="import-input" accept="application/json" style="display:none" />
+    <button class="btn admin-only" id="btn-export-align">Export alignment</button>
     <button class="btn admin-only danger" id="btn-clear-all">Clear all</button>
   </div>
 
@@ -517,12 +606,30 @@
 
     let terrain = null;
     let pileMesh = null;        // InstancedMesh of all pile spheres
+    let pileStalks = null;      // LineSegments for vertical stalks
     let pileData = [];          // [{serial, group, color, hex, postType, ..., position}]
     let visibleMask = [];       // bool per pile (toggled by legend/group filters)
     let markerFloatHeight = 0;  // y-offset from surface to sphere center
     let markerRadius = 0;
     const colorFilter = new Set();   // colors hidden
     const groupFilter = new Set();   // groups hidden
+
+    // Layout transform (PDF coords -> world XZ). baseScale is the auto-fit
+    // scale; the editable transform layers tx/tz/rotDeg/scale on top of that.
+    const TRANSFORM_KEY = "midway_pile_transform_v1";
+    let transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1 };
+    let layoutCtx = null; // { baseScale, pdfCenterX, pdfCenterY, modelCenterX, modelCenterZ, bbox, rayTargets }
+    try {
+      const raw = localStorage.getItem(TRANSFORM_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") transform = { ...transform, ...parsed };
+      }
+    } catch (_) {}
+    function saveTransform() {
+      try { localStorage.setItem(TRANSFORM_KEY, JSON.stringify(transform)); }
+      catch (e) { console.error(e); }
+    }
 
     // ---- Load ---------------------------------------------------------------
     const loader = new GLTFLoader();
@@ -534,13 +641,20 @@
       }),
       // Optional committed assignments. Missing file is fine.
       fetch("data/pile_assignments.json").then(r => r.ok ? r.json() : null).catch(() => null),
+      // Optional committed alignment transform. Missing file is fine.
+      fetch("data/pile_transform.json").then(r => r.ok ? r.json() : null).catch(() => null),
     ])
-    .then(([gltf, data, committed]) => {
+    .then(([gltf, data, committed, committedTransform]) => {
       // Merge committed -> localStorage takes precedence so admin edits "win" locally.
       if (committed && typeof committed === "object" && committed.assignments) {
         for (const [k, v] of Object.entries(committed.assignments)) {
           if (!assignments[k]) assignments[k] = v;
         }
+      }
+      // Committed transform applies only when the user hasn't customized locally.
+      if (committedTransform && typeof committedTransform === "object") {
+        const hasLocal = localStorage.getItem(TRANSFORM_KEY);
+        if (!hasLocal) transform = { ...transform, ...committedTransform };
       }
       updateAssignedCount();
       // -- Add model to scene
@@ -575,43 +689,36 @@
       controls.target.set(center.x, center.y + size.y * 0.3, center.z);
       controls.update();
 
-      // -- Map pile PDF coords -> world XZ inside model bbox, preserving aspect.
+      // -- Compute the base auto-fit (PDF -> model XZ, preserving aspect)
       const pdf = data.meta.pdfBounds;
       const pdfW = pdf.maxX - pdf.minX;
       const pdfH = pdf.maxY - pdf.minY;
-      // Use 92% of model footprint as the layout extent (so dots aren't right at edge)
       const useW = size.x * 0.92;
       const useH = size.z * 0.92;
-      const sFit = Math.min(useW / pdfW, useH / pdfH);
-      const layoutW = pdfW * sFit;
-      const layoutH = pdfH * sFit;
-      const cx0 = center.x - layoutW / 2;
-      const cz0 = center.z - layoutH / 2;
+      const baseScale = Math.min(useW / pdfW, useH / pdfH);
 
-      // Build a list of all meshes to raycast against (terrain may be a group)
       const rayTargets = [];
       root.traverse((o) => { if (o.isMesh) rayTargets.push(o); });
 
-      const downRay = new THREE.Raycaster();
-      const downDir = new THREE.Vector3(0, -1, 0);
-      const yAbove = bbox.max.y + 0.5;
-      const yBelow = bbox.min.y - 0.5;
+      layoutCtx = {
+        baseScale,
+        pdfCenterX: (pdf.minX + pdf.maxX) / 2,
+        pdfCenterY: (pdf.minY + pdf.maxY) / 2,
+        modelCenterX: center.x,
+        modelCenterZ: center.z,
+        bbox,
+        rayTargets,
+      };
 
-      // Build pile records with computed world positions
-      pileData = data.piles.map((p) => {
-        const lx = (p.cx - pdf.minX) * sFit + cx0;
-        // PDF Y increases downward; flip to model Z so layout is upright on the surface.
-        const lz = (pdf.maxY - p.cy) * sFit + cz0;
-        const origin = new THREE.Vector3(lx, yAbove, lz);
-        downRay.set(origin, downDir);
-        const hits = downRay.intersectObjects(rayTargets, false);
-        const y = hits.length ? hits[0].point.y : (bbox.min.y + size.y * 0.5);
-        return {
-          ...p,
-          pileId: p.serial,   // stable id keyed off the auto-assigned serial; survives serial overrides
-          position: new THREE.Vector3(lx, y, lz),
-        };
-      });
+      // Seed records once; positions get filled in by recomputePileWorldPositions().
+      pileData = data.piles.map((p) => ({
+        ...p,
+        pileId: p.serial,   // stable id keyed off the auto-assigned serial; survives serial overrides
+        position: new THREE.Vector3(0, 0, 0),
+        srcX: p.cx,         // raw PDF coords kept for transform math
+        srcY: p.cy,
+      }));
+      recomputePileWorldPositions();
 
       visibleMask = new Array(pileData.length).fill(true);
 
@@ -649,6 +756,7 @@
       scene.add(pileMesh);
 
       // Add thin "stalks" beneath each pile for a "pegged" look using LineSegments
+      // (sized once; geometry is rewritten on every transform change.)
       const stalkPos = new Float32Array(pileData.length * 6);
       const stalkCol = new Float32Array(pileData.length * 6);
       for (let i = 0; i < pileData.length; i++) {
@@ -666,7 +774,10 @@
       const stalkMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 });
       const stalks = new THREE.LineSegments(stalkGeo, stalkMat);
       scene.add(stalks);
+      pileStalks = stalks;
       pileMesh.userData.stalks = stalks;
+      // Now that mesh+stalks exist, push the initial transform-driven positions.
+      rebuildPileMeshFromPositions();
 
       // Highlight ring (used when a pile is selected)
       const ringGeo = new THREE.RingGeometry(markerRadius * 1.4, markerRadius * 2.0, 28);
@@ -680,6 +791,11 @@
       // -- UI panels
       buildLegendUI(data.meta);
       buildGroupUI(data.meta);
+      syncAlignUIFromTransform();
+      // If a non-default transform was loaded, apply it now.
+      if (transform.tx || transform.tz || transform.rotDeg || transform.scale !== 1) {
+        applyTransform({ persist: false });
+      }
       $("stats").textContent = `${pileData.length} piles · ${Object.keys(data.meta.groupCounts).length} groups`;
 
       $("loading").classList.add("hidden");
@@ -688,6 +804,85 @@
       console.error(err);
       $("loading").textContent = "Failed to load: " + (err.message || err);
     });
+
+    // Selected pile index (hoisted so applyTransform can refresh it).
+    let selectedIndex = -1;
+
+    // ---- Layout transform --------------------------------------------------
+    // Maps PDF (srcX, srcY) -> world (X, Z) via the current `transform`.
+    //   srcX, srcY are raw PDF page coordinates (y down).
+    //   We center on PDF center, flip Y, scale by baseScale*transform.scale,
+    //   rotate around Y by transform.rotDeg, then translate by
+    //   (modelCenterX + tx, modelCenterZ + tz). Y is set by raycasting down.
+    const _downRay = new THREE.Raycaster();
+    const _downDir = new THREE.Vector3(0, -1, 0);
+    function pdfToWorldXZ(srcX, srcY) {
+      const ctx = layoutCtx;
+      const dx = (srcX - ctx.pdfCenterX) * ctx.baseScale * transform.scale;
+      const dz = -(srcY - ctx.pdfCenterY) * ctx.baseScale * transform.scale;
+      const rad = transform.rotDeg * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      const rx = dx * c - dz * s;
+      const rz = dx * s + dz * c;
+      return {
+        x: ctx.modelCenterX + transform.tx + rx,
+        z: ctx.modelCenterZ + transform.tz + rz,
+      };
+    }
+    function recomputePileWorldPositions() {
+      if (!layoutCtx || !pileData.length) return;
+      const yAbove = layoutCtx.bbox.max.y + 0.5;
+      const fallbackY = layoutCtx.bbox.min.y + (layoutCtx.bbox.max.y - layoutCtx.bbox.min.y) * 0.5;
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        const w = pdfToWorldXZ(p.srcX, p.srcY);
+        _downRay.set(new THREE.Vector3(w.x, yAbove, w.z), _downDir);
+        const hits = _downRay.intersectObjects(layoutCtx.rayTargets, false);
+        const y = hits.length ? hits[0].point.y : fallbackY;
+        p.position.set(w.x, y, w.z);
+      }
+    }
+    // Push the current pileData[].position into the InstancedMesh + stalk geo.
+    function rebuildPileMeshFromPositions() {
+      if (!pileMesh || !pileStalks) return;
+      const m = new THREE.Matrix4();
+      const sV = new THREE.Vector3(1, 1, 1);
+      const sH = new THREE.Vector3(0.0001, 0.0001, 0.0001);
+      const stalkPos = pileStalks.geometry.attributes.position.array;
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        const visible = visibleMask[i] !== false;
+        m.makeTranslation(p.position.x, p.position.y + markerFloatHeight, p.position.z);
+        m.scale(visible ? sV : sH);
+        pileMesh.setMatrixAt(i, m);
+        stalkPos[i*6+0] = p.position.x;
+        stalkPos[i*6+1] = p.position.y;
+        stalkPos[i*6+2] = p.position.z;
+        stalkPos[i*6+3] = p.position.x;
+        stalkPos[i*6+4] = p.position.y + markerFloatHeight;
+        stalkPos[i*6+5] = p.position.z;
+      }
+      pileMesh.instanceMatrix.needsUpdate = true;
+      pileStalks.geometry.attributes.position.needsUpdate = true;
+    }
+    function applyTransform({ persist = true } = {}) {
+      recomputePileWorldPositions();
+      rebuildPileMeshFromPositions();
+      // Refresh the highlight ring + the info panel's surface elevation.
+      if (selectedIndex >= 0 && selectedIndex < pileData.length) {
+        const p = pileData[selectedIndex];
+        const ring = pileMesh && pileMesh.userData && pileMesh.userData.ring;
+        if (ring && ring.visible) ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
+        $("info-y").textContent = p.position.y.toFixed(3);
+      }
+      if (persist) saveTransform();
+      updateAlignSliderLabels();
+    }
+    function resetTransform() {
+      transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1 };
+      applyTransform();
+      syncAlignUIFromTransform();
+    }
 
     // ---- UI -----------------------------------------------------------------
     function buildLegendUI(meta) {
@@ -758,7 +953,6 @@
 
     // ---- Interaction --------------------------------------------------------
     let hoverIndex = -1;
-    let selectedIndex = -1;
 
     function onPointerMove(e) {
       if (!pileMesh) return;
@@ -843,6 +1037,8 @@
 
     renderer.domElement.addEventListener("click", (e) => {
       if (!pileMesh) return;
+      // Anchor mode consumes clicks first.
+      if (anchor.active && handleAnchorClick(e)) return;
       const r = renderer.domElement.getBoundingClientRect();
       pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
       pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
@@ -850,6 +1046,11 @@
       const hits = raycaster.intersectObject(pileMesh);
       const hit = hits.find(h => visibleMask[h.instanceId]);
       if (hit) selectPile(hit.instanceId);
+    });
+
+    // Escape exits anchor mode.
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && anchor.active) exitAnchorMode("Anchor mode cancelled.");
     });
 
     $("info-close").addEventListener("click", () => {
@@ -979,6 +1180,170 @@
         toast("Import failed: " + (err.message || err), 4000);
       }
       e.target.value = "";
+    });
+
+    // ---- Alignment UI ------------------------------------------------------
+    function syncAlignUIFromTransform() {
+      $("align-tx").value = transform.tx;
+      $("align-tx-num").value = transform.tx.toFixed(3);
+      $("align-tz").value = transform.tz;
+      $("align-tz-num").value = transform.tz.toFixed(3);
+      $("align-rot").value = transform.rotDeg;
+      $("align-rot-num").value = transform.rotDeg.toFixed(2);
+      $("align-scale").value = transform.scale;
+      $("align-scale-num").value = transform.scale.toFixed(3);
+    }
+    function updateAlignSliderLabels() {
+      // Numbers track sliders so user sees exact values.
+      $("align-tx-num").value = transform.tx.toFixed(3);
+      $("align-tz-num").value = transform.tz.toFixed(3);
+      $("align-rot-num").value = transform.rotDeg.toFixed(2);
+      $("align-scale-num").value = transform.scale.toFixed(3);
+    }
+    function bindAlign(rangeId, numId, key, decimals = 3) {
+      const r = $(rangeId), n = $(numId);
+      r.addEventListener("input", () => {
+        transform[key] = parseFloat(r.value) || 0;
+        applyTransform({ persist: false });
+      });
+      r.addEventListener("change", () => saveTransform());
+      n.addEventListener("change", () => {
+        const v = parseFloat(n.value);
+        if (!Number.isFinite(v)) return;
+        transform[key] = v;
+        r.value = v;
+        applyTransform();
+      });
+    }
+    bindAlign("align-tx", "align-tx-num", "tx");
+    bindAlign("align-tz", "align-tz-num", "tz");
+    bindAlign("align-rot", "align-rot-num", "rotDeg");
+    bindAlign("align-scale", "align-scale-num", "scale");
+    $("btn-align-reset").addEventListener("click", () => {
+      resetTransform();
+      toast("Alignment reset");
+    });
+
+    // -- Two-point anchor mode --
+    // Sequence: pick pile A -> pick target A -> pick pile B -> pick target B
+    // Then solve scale+rotation+translation so both pairs match.
+    const anchor = {
+      active: false,
+      step: 0,  // 0..4
+      A: null, // { pilePdfX, pilePdfY, targetX, targetZ }
+      B: null,
+    };
+    function setAnchorStatus(text, active = true) {
+      const el = $("anchor-status");
+      el.textContent = text;
+      el.classList.toggle("active", !!active);
+    }
+    function exitAnchorMode(msg) {
+      anchor.active = false;
+      anchor.step = 0;
+      anchor.A = null; anchor.B = null;
+      document.body.classList.remove("anchor-pick-pile", "anchor-pick-target");
+      if (msg) setAnchorStatus(msg, false);
+      else setAnchorStatus("Tip: drag sliders, or use 2-pt anchor to align by clicking two reference points.", false);
+    }
+    function advanceAnchorPrompt() {
+      if (anchor.step === 0) { setAnchorStatus("Step 1/4: Click the first reference pile (white dot)."); document.body.classList.add("anchor-pick-pile"); document.body.classList.remove("anchor-pick-target"); }
+      else if (anchor.step === 1) { setAnchorStatus("Step 2/4: Click on the model where that pile should sit."); document.body.classList.add("anchor-pick-target"); document.body.classList.remove("anchor-pick-pile"); }
+      else if (anchor.step === 2) { setAnchorStatus("Step 3/4: Click a second reference pile."); document.body.classList.add("anchor-pick-pile"); document.body.classList.remove("anchor-pick-target"); }
+      else if (anchor.step === 3) { setAnchorStatus("Step 4/4: Click the second target on the model."); document.body.classList.add("anchor-pick-target"); document.body.classList.remove("anchor-pick-pile"); }
+    }
+    $("btn-anchor").addEventListener("click", () => {
+      if (anchor.active) { exitAnchorMode("Anchor mode cancelled."); return; }
+      anchor.active = true;
+      anchor.step = 0;
+      anchor.A = null; anchor.B = null;
+      advanceAnchorPrompt();
+    });
+
+    function solveAnchorTransform() {
+      // Two pairs (a_pdf, A_world) and (b_pdf, B_world).
+      // Solve similarity transform such that PDF->world. Update `transform`.
+      const ctx = layoutCtx;
+      const ax = (anchor.A.pilePdfX - ctx.pdfCenterX);
+      const ay = -(anchor.A.pilePdfY - ctx.pdfCenterY); // flip Y once
+      const bx = (anchor.B.pilePdfX - ctx.pdfCenterX);
+      const by = -(anchor.B.pilePdfY - ctx.pdfCenterY);
+      const Ax = anchor.A.targetX - ctx.modelCenterX;
+      const Az = anchor.A.targetZ - ctx.modelCenterZ;
+      const Bx = anchor.B.targetX - ctx.modelCenterX;
+      const Bz = anchor.B.targetZ - ctx.modelCenterZ;
+      // Vector PDF: (vpx, vpy); vector world: (vwx, vwz).
+      const vpx = bx - ax, vpy = by - ay;
+      const vwx = Bx - Ax, vwz = Bz - Az;
+      const lp = Math.hypot(vpx, vpy);
+      const lw = Math.hypot(vwx, vwz);
+      if (lp < 1e-6 || lw < 1e-6) { exitAnchorMode("Anchors too close — try again."); return; }
+      // Scale relative to baseScale (so transform.scale stays a multiplier).
+      const totalScale = lw / lp;
+      transform.scale = totalScale / ctx.baseScale;
+      // Rotation: angle(vw) - angle(vp).
+      const angP = Math.atan2(vpy, vpx);
+      const angW = Math.atan2(vwz, vwx);
+      transform.rotDeg = ((angW - angP) * 180 / Math.PI);
+      // Translation: chosen so anchor A lands on its target.
+      // After scale + rotation, PDF point a -> rotated by transform.rotDeg
+      // and scaled by baseScale*transform.scale. Translation is what makes
+      // that equal to (Ax, Az).
+      const rad = transform.rotDeg * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      const sFac = ctx.baseScale * transform.scale;
+      const apx = ax * sFac * c - ay * sFac * s;
+      const apz = ax * sFac * s + ay * sFac * c;
+      transform.tx = Ax - apx;
+      transform.tz = Az - apz;
+      applyTransform();
+      syncAlignUIFromTransform();
+      exitAnchorMode(`Aligned · scale ${transform.scale.toFixed(3)} · rot ${transform.rotDeg.toFixed(1)}°`);
+      toast("Alignment applied");
+    }
+
+    function handleAnchorClick(e) {
+      if (!anchor.active || !pileMesh) return false;
+      const r = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      // Step 0 & 2: pick a pile
+      if (anchor.step === 0 || anchor.step === 2) {
+        const hits = raycaster.intersectObject(pileMesh);
+        const hit = hits.find(h => visibleMask[h.instanceId]);
+        if (!hit) { toast("Click directly on a white pile dot"); return true; }
+        const p = pileData[hit.instanceId];
+        if (anchor.step === 0) anchor.A = { pilePdfX: p.srcX, pilePdfY: p.srcY };
+        else anchor.B = { pilePdfX: p.srcX, pilePdfY: p.srcY };
+        anchor.step++;
+        advanceAnchorPrompt();
+        return true;
+      }
+      // Step 1 & 3: pick a target point on the terrain
+      if (anchor.step === 1 || anchor.step === 3) {
+        const hits = raycaster.intersectObjects(layoutCtx.rayTargets, false);
+        if (!hits.length) { toast("Click on the terrain"); return true; }
+        const h = hits[0].point;
+        if (anchor.step === 1) { anchor.A.targetX = h.x; anchor.A.targetZ = h.z; }
+        else { anchor.B.targetX = h.x; anchor.B.targetZ = h.z; }
+        anchor.step++;
+        if (anchor.step >= 4) solveAnchorTransform();
+        else advanceAnchorPrompt();
+        return true;
+      }
+      return false;
+    }
+
+    $("btn-export-align").addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify(transform, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "pile_transform.json";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      toast("Downloaded pile_transform.json");
     });
 
     $("btn-clear-all").addEventListener("click", () => {
