@@ -600,6 +600,14 @@
     <h3>Alignment</h3>
 
     <div class="align-section">
+      <div class="align-section-label">Overlay</div>
+      <div class="edit-mode-row">
+        <button class="btn edit-mode-btn overlay-mode-btn" data-overlay="modules">Modules</button>
+        <button class="btn edit-mode-btn overlay-mode-btn" data-overlay="dots">Dots</button>
+      </div>
+    </div>
+
+    <div class="align-section">
       <div class="align-section-label">Edit target</div>
       <div id="edit-target-row"></div>
     </div>
@@ -933,6 +941,30 @@
       catch (e) { console.error(e); }
     }
 
+    // ---- Module (stringing-plan) overlay state -----------------------------
+    // Overlay mode: 'dots' (piles) or 'modules' (flat PV-module quads).
+    const OVERLAY_KEY = "midway_overlay_mode_v1";
+    let overlayMode = localStorage.getItem(OVERLAY_KEY) || "modules";
+    let moduleMesh = null;          // THREE.Mesh of flat quads
+    let moduleRecords = [];         // [{sheet, srcX, srcY}]
+    let moduleSheets = [];          // [{id, w, h, baseScale, pdfCx, pdfCy, count}]
+    // Per-sheet transforms — each stringing sheet is an independent layer.
+    const SHEET_TRANSFORMS_KEY = "midway_sheet_transforms_v1";
+    let sheetTransforms = {};       // { [sheetId]: {tx,tz,rotDeg,scale,flipX,flipZ} }
+    try {
+      const raw = localStorage.getItem(SHEET_TRANSFORMS_KEY);
+      if (raw) sheetTransforms = JSON.parse(raw) || {};
+    } catch (_) { sheetTransforms = {}; }
+    function saveSheetTransforms() {
+      try { localStorage.setItem(SHEET_TRANSFORMS_KEY, JSON.stringify(sheetTransforms)); } catch (_) {}
+    }
+    function ensureSheetT(id) {
+      if (!sheetTransforms[id]) sheetTransforms[id] = { tx: 0, tz: 0, rotDeg: 0, scale: 1, flipX: 1, flipZ: 1 };
+      return sheetTransforms[id];
+    }
+    // Per-sheet colors (match the group palette feel).
+    const SHEET_COLORS = { E120: "#38bdf8", E121: "#22c55e", E122: "#f59e0b", E123: "#a855f7" };
+
     // ---- Load ---------------------------------------------------------------
     const loader = new GLTFLoader();
     Promise.all([
@@ -947,9 +979,12 @@
       fetch("data/pile_transform.json").then(r => r.ok ? r.json() : null).catch(() => null),
       // Optional KMZ georeference (lat/lon overlays + borings).
       fetch("data/kmz_reference.json").then(r => r.ok ? r.json() : null).catch(() => null),
+      // Module rectangles from the stringing plans (E120-E123). Optional.
+      fetch("data/modules.json").then(r => r.ok ? r.json() : null).catch(() => null),
     ])
-    .then(([gltf, data, committed, committedTransform, kmz]) => {
+    .then(([gltf, data, committed, committedTransform, kmz, moduleSet]) => {
       window.__kmz = kmz;
+      window.__moduleSet = moduleSet;
       // Merge committed -> localStorage takes precedence so admin edits "win" locally.
       if (committed && typeof committed === "object" && committed.assignments) {
         for (const [k, v] of Object.entries(committed.assignments)) {
@@ -1104,6 +1139,12 @@
       ring.visible = false;
       scene.add(ring);
       pileMesh.userData.ring = ring;
+
+      // -- Build module overlay (flat quads) from the stringing plans.
+      if (moduleSet && moduleSet.modules && moduleSet.modules.length) {
+        buildModuleOverlay(moduleSet);
+      }
+      applyOverlayMode();
 
       // -- UI panels
       buildGroupUI(data.meta);
@@ -1318,6 +1359,12 @@
     function applyTransform({ persist = true, interactive: int = false } = {}) {
       // Heightmap lookups make recompute O(1)/pile, so there's no longer an
       // interactive vs settle distinction — every pass uses the real surface.
+      if (overlayMode === "modules") {
+        recomputeModulePositions();
+        if (!int) updateAlignSliderLabels();
+        if (persist) persistActive();
+        return;
+      }
       recomputePileWorldPositions();
       rebuildPileMeshFromPositions();
       if (selectedIndex >= 0 && selectedIndex < pileData.length) {
@@ -1340,7 +1387,10 @@
       });
     }
     function resetTransform() {
-      if (editTarget === "ALL") {
+      if (overlayMode === "modules") {
+        delete sheetTransforms[editTarget];
+        saveSheetTransforms();
+      } else if (editTarget === "ALL") {
         transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
       } else {
         delete groupTransforms[editTarget];
@@ -1350,24 +1400,144 @@
       syncAlignUIFromTransform();
     }
 
-    // Edit-target buttons (one per group + "All")
+    // ---- Module overlay (flat PV-module quads) -----------------------------
+    function buildModuleOverlay(set) {
+      moduleRecords = set.modules.map(m => ({ s: m[0], x: m[1], y: m[2] }));
+      // Per-sheet layout context: fit each sheet's module bbox into the model
+      // footprint (preserving aspect), so an un-aligned sheet still shows up
+      // sensibly. The user then nudges each sheet with the transform tools.
+      const bbox = layoutCtx.bbox, size = bbox.getSize(new THREE.Vector3());
+      // Stagger un-positioned sheets into quadrants so they don't all stack
+      // on top of each other — makes each easy to grab and align.
+      const stagger = [[-0.22, -0.22], [0.22, -0.22], [-0.22, 0.22], [0.22, 0.22]];
+      moduleSheets = set.meta.sheets.map((sh, idx) => {
+        const b = sh.bounds || { minX: 0, maxX: 1, minY: 0, maxY: 1 };
+        const pw = (b.maxX - b.minX) || 1, ph = (b.maxY - b.minY) || 1;
+        const baseScale = Math.min(size.x * 0.45 / pw, size.z * 0.45 / ph);
+        if (!sheetTransforms[sh.id]) {
+          const s = stagger[idx % 4];
+          sheetTransforms[sh.id] = { tx: s[0]*size.x, tz: s[1]*size.z, rotDeg: 0, scale: 1, flipX: 1, flipZ: 1 };
+        }
+        return {
+          id: sh.id, idx, w: sh.w || 12.8, h: sh.h || 5.9,
+          baseScale, pdfCx: (b.minX + b.maxX) / 2, pdfCy: (b.minY + b.maxY) / 2,
+          count: sh.count,
+        };
+      });
+      // Geometry: 4 verts + 2 tris (6 indices) per module.
+      const N = moduleRecords.length;
+      const positions = new Float32Array(N * 4 * 3);
+      const colors = new Float32Array(N * 4 * 3);
+      const indices = new Uint32Array(N * 6);
+      for (let i = 0; i < N; i++) {
+        const sheet = moduleSheets[moduleRecords[i].s];
+        const c = new THREE.Color(SHEET_COLORS[sheet ? sheet.id : ""] || "#38bdf8");
+        for (let k = 0; k < 4; k++) {
+          colors[(i*4+k)*3+0] = c.r; colors[(i*4+k)*3+1] = c.g; colors[(i*4+k)*3+2] = c.b;
+        }
+        const o = i * 4;
+        indices[i*6+0]=o; indices[i*6+1]=o+1; indices[i*6+2]=o+2;
+        indices[i*6+3]=o; indices[i*6+4]=o+2; indices[i*6+5]=o+3;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+      geo.setIndex(new THREE.BufferAttribute(indices, 1));
+      const mat = new THREE.MeshBasicMaterial({
+        vertexColors: true, side: THREE.DoubleSide,
+        transparent: true, opacity: 0.85, depthWrite: false,
+      });
+      moduleMesh = new THREE.Mesh(geo, mat);
+      moduleMesh.frustumCulled = false;
+      moduleMesh.renderOrder = 2;
+      scene.add(moduleMesh);
+      recomputeModulePositions();
+    }
+
+    // Transform a module's PDF point into world XZ via its sheet's transform.
+    function sheetPdfToWorldXZ(sheet, st, srcX, srcY, out) {
+      const dx = (srcX - sheet.pdfCx) * sheet.baseScale * (st.scale || 1) * (st.flipX || 1);
+      const dz = -(srcY - sheet.pdfCy) * sheet.baseScale * (st.scale || 1) * (st.flipZ || 1);
+      const rad = (st.rotDeg || 0) * Math.PI / 180;
+      const cs = Math.cos(rad), sn = Math.sin(rad);
+      out.x = layoutCtx.modelCenterX + (st.tx || 0) + (dx * cs - dz * sn);
+      out.z = layoutCtx.modelCenterZ + (st.tz || 0) + (dx * sn + dz * cs);
+      return out;
+    }
+    const MOD_LIFT = 0.004;
+    function recomputeModulePositions() {
+      if (!moduleMesh) return;
+      const pos = moduleMesh.geometry.attributes.position.array;
+      const o1 = _xzOut, c2 = { x: 0, z: 0 };
+      for (let i = 0; i < moduleRecords.length; i++) {
+        const m = moduleRecords[i];
+        const sheet = moduleSheets[m.s];
+        const st = ensureSheetT(sheet.id);
+        // Half-extents in world units (scale applied; rotation handled by corner offsets).
+        const hw = sheet.w * 0.5 * sheet.baseScale * (st.scale || 1);
+        const hh = sheet.h * 0.5 * sheet.baseScale * (st.scale || 1);
+        const rad = (st.rotDeg || 0) * Math.PI / 180;
+        const cs = Math.cos(rad), sn = Math.sin(rad);
+        sheetPdfToWorldXZ(sheet, st, m.x, m.y, o1);
+        const cxw = o1.x, czw = o1.z;
+        // 4 corners (local +/-hw,+/-hh) rotated into world, Y from heightmap.
+        const cor = [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]];
+        for (let k = 0; k < 4; k++) {
+          const lx = cor[k][0], lz = cor[k][1];
+          const wx = cxw + (lx * cs - lz * sn);
+          const wz = czw + (lx * sn + lz * cs);
+          const base = (i*4+k)*3;
+          pos[base+0] = wx;
+          pos[base+1] = sampleHeight(wx, wz) + MOD_LIFT;
+          pos[base+2] = wz;
+        }
+      }
+      moduleMesh.geometry.attributes.position.needsUpdate = true;
+      moduleMesh.geometry.computeBoundingSphere();
+      requestRender();
+    }
+    function applyOverlayMode() {
+      if (pileMesh) pileMesh.visible = overlayMode === "dots";
+      if (pileMesh && pileMesh.userData.stalks) pileMesh.userData.stalks.visible = overlayMode === "dots";
+      if (moduleMesh) moduleMesh.visible = overlayMode === "modules";
+      try { localStorage.setItem(OVERLAY_KEY, overlayMode); } catch (_) {}
+      requestRender();
+    }
+
+    // Edit-target buttons. In dots mode: All + groups. In modules mode: the
+    // stringing sheets (E120-E123), each an independent layer.
     function buildEditTargetUI() {
       const container = $("edit-target-row");
       container.innerHTML = "";
-      const all = document.createElement("button");
-      all.className = "target-btn";
-      all.dataset.target = "ALL";
-      all.textContent = "All";
-      container.appendChild(all);
-      const order = ["N1","N2","N3","N4","N5","N6","N7-A","N7-B","N8","N9"];
-      order.forEach(g => {
-        if (!groupCentroidsPDF[g]) return;
-        const b = document.createElement("button");
-        b.className = "target-btn";
-        b.dataset.target = g;
-        b.innerHTML = `<span class="dot" style="background:${GROUP_COLORS[g] || '#fff'}"></span>${g}`;
-        container.appendChild(b);
-      });
+      if (overlayMode === "modules") {
+        moduleSheets.forEach(sh => {
+          const b = document.createElement("button");
+          b.className = "target-btn";
+          b.dataset.target = sh.id;
+          b.innerHTML = `<span class="dot" style="background:${SHEET_COLORS[sh.id] || '#38bdf8'}"></span>${sh.id}`;
+          container.appendChild(b);
+        });
+        // Default edit target to first sheet if current isn't a sheet.
+        if (!moduleSheets.some(s => s.id === editTarget)) {
+          editTarget = moduleSheets.length ? moduleSheets[0].id : "ALL";
+        }
+      } else {
+        const all = document.createElement("button");
+        all.className = "target-btn";
+        all.dataset.target = "ALL";
+        all.textContent = "All";
+        container.appendChild(all);
+        const order = ["N1","N2","N3","N4","N5","N6","N7-A","N7-B","N8","N9"];
+        order.forEach(g => {
+          if (!groupCentroidsPDF[g]) return;
+          const b = document.createElement("button");
+          b.className = "target-btn";
+          b.dataset.target = g;
+          b.innerHTML = `<span class="dot" style="background:${GROUP_COLORS[g] || '#fff'}"></span>${g}`;
+          container.appendChild(b);
+        });
+        if (editTarget !== "ALL" && !groupCentroidsPDF[editTarget]) editTarget = "ALL";
+      }
       container.querySelectorAll(".target-btn").forEach(b => {
         b.addEventListener("click", () => setEditTarget(b.dataset.target));
       });
@@ -1639,6 +1809,7 @@
       dragState = {
         mode: editMode,
         target: editTarget,
+        mode2: overlayMode,
         startX: e.clientX, startY: e.clientY,
         startWorld: startW,
         planeY,
@@ -1649,7 +1820,9 @@
     });
     renderer.domElement.addEventListener("pointermove", (e) => {
       if (!dragState) return;
-      const t = (dragState.target === "ALL") ? transform : ensureGT(dragState.target);
+      const t = dragState.mode2 === "modules"
+        ? ensureSheetT(dragState.target)
+        : (dragState.target === "ALL" ? transform : ensureGT(dragState.target));
       if (dragState.mode === "translate") {
         const w = pointerToGroundXZ(e, dragState.planeY);
         if (!w) return;
@@ -1671,7 +1844,8 @@
     function endDrag(e) {
       if (!dragState) return;
       try { renderer.domElement.releasePointerCapture(e.pointerId); } catch (_) {}
-      if (dragState.target === "ALL") saveTransform();
+      if (dragState.mode2 === "modules") saveSheetTransforms();
+      else if (dragState.target === "ALL") saveTransform();
       else saveGroupTransforms();
       // Block the click that fires immediately after a drag-up.
       const moved = Math.hypot(e.clientX - dragState.startX, e.clientY - dragState.startY) > 3;
@@ -1831,12 +2005,14 @@
       $("align-rot-num").value = (t.rotDeg || 0).toFixed(2);
       $("align-scale-num").value = (t.scale || 1).toFixed(3);
     }
-    // Returns the active transform object (global or per-group).
+    // Returns the active transform object (sheet / global / per-group).
     function activeTransform() {
+      if (overlayMode === "modules") return ensureSheetT(editTarget);
       return editTarget === "ALL" ? transform : ensureGT(editTarget);
     }
     function persistActive() {
-      if (editTarget === "ALL") saveTransform();
+      if (overlayMode === "modules") saveSheetTransforms();
+      else if (editTarget === "ALL") saveTransform();
       else saveGroupTransforms();
     }
     function bindAlign(rangeId, numId, key) {
@@ -1875,7 +2051,9 @@
     $("btn-flip-x").addEventListener("click", () => {
       if (layoutLocked) return;
       const t = activeTransform();
-      if (editTarget === "ALL") {
+      if (overlayMode === "modules") {
+        t.flipX = (t.flipX || 1) * -1;
+      } else if (editTarget === "ALL") {
         t.geoStretchX = (t.geoStretchX || 1) * -1;
       } else {
         t.scale = -(t.scale || 1);  // per-group flip via negative scale
@@ -1887,12 +2065,13 @@
     $("btn-flip-z").addEventListener("click", () => {
       if (layoutLocked) return;
       const t = activeTransform();
-      if (editTarget === "ALL") {
+      if (overlayMode === "modules") {
+        t.flipZ = (t.flipZ || 1) * -1;
+      } else if (editTarget === "ALL") {
         t.geoStretchZ = (t.geoStretchZ || 1) * -1;
       } else {
         // For per-group, "Flip Z" rotates 180° (simpler than a Z stretch).
         t.rotDeg = (t.rotDeg || 0) + 180;
-        // Also negate scale to mirror Z relative to centroid.
         t.scale = -(t.scale || 1);
       }
       applyTransform();
@@ -1912,6 +2091,24 @@
     document.querySelectorAll(".color-mode-btn").forEach(b => {
       b.addEventListener("click", () => setColorMode(b.dataset.mode));
     });
+
+    // Overlay mode toggle (Modules vs Dots)
+    function setOverlayMode(mode) {
+      overlayMode = mode;
+      applyOverlayMode();
+      buildEditTargetUI();          // targets differ per mode (sheets vs groups)
+      refreshOverlayModeButtons();
+      syncAlignUIFromTransform();
+    }
+    function refreshOverlayModeButtons() {
+      document.querySelectorAll(".overlay-mode-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.overlay === overlayMode);
+      });
+    }
+    document.querySelectorAll(".overlay-mode-btn").forEach(b => {
+      b.addEventListener("click", () => setOverlayMode(b.dataset.overlay));
+    });
+    refreshOverlayModeButtons();
 
     // ---- KMZ georeference --------------------------------------------------
     // Mapping uses the combined CAD-overlay lat/lon bbox as the geographic
