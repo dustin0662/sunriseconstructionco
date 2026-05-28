@@ -886,63 +886,68 @@
 
       visibleMask = new Array(pileData.length).fill(true);
 
-      // -- Build InstancedMesh of pile markers
-      // Marker is a small "lollipop": a vertical stalk + a flat disc on top.
-      // We use a low-poly sphere for performance and per-instance colors.
+      // -- Build a fast THREE.Points cloud (one billboard sprite per pile).
+      // Vastly cheaper than 2932 instanced spheres + 2932 line stalks.
       markerRadius = Math.max(0.012, size.x * 0.004);
-      const markerGeo = new THREE.SphereGeometry(markerRadius, 14, 10);
-      const markerMat = new THREE.MeshStandardMaterial({
-        roughness: 0.35,
-        metalness: 0.15,
-        emissive: 0x000000,
-      });
-      pileMesh = new THREE.InstancedMesh(markerGeo, markerMat, pileData.length);
-      pileMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      // Per-instance color
-      pileMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(pileData.length * 3), 3);
-      pileMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
-
-      const dummy = new THREE.Object3D();
-      const tmpColor = new THREE.Color();
-      markerFloatHeight = markerRadius * 1.6; // float just above surface
+      markerFloatHeight = markerRadius * 1.6;
       const floatHeight = markerFloatHeight;
-      for (let i = 0; i < pileData.length; i++) {
-        const p = pileData[i];
-        dummy.position.set(p.position.x, p.position.y + floatHeight, p.position.z);
-        dummy.scale.setScalar(1);
-        dummy.updateMatrix();
-        pileMesh.setMatrixAt(i, dummy.matrix);
-        tmpColor.set(pileColorHex(p));
-        pileMesh.setColorAt(i, tmpColor);
+
+      // Circular sprite (white core, soft halo) generated once on a canvas.
+      const sprCanvas = document.createElement("canvas");
+      sprCanvas.width = sprCanvas.height = 64;
+      {
+        const ctx = sprCanvas.getContext("2d");
+        ctx.clearRect(0, 0, 64, 64);
+        // Outer ring for legibility on light backgrounds
+        ctx.beginPath();
+        ctx.arc(32, 32, 30, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fill();
+        // Inner colored fill
+        ctx.beginPath();
+        ctx.arc(32, 32, 26, 0, Math.PI * 2);
+        ctx.fillStyle = "white";
+        ctx.fill();
       }
-      pileMesh.instanceMatrix.needsUpdate = true;
-      if (pileMesh.instanceColor) pileMesh.instanceColor.needsUpdate = true;
+      const pileSprite = new THREE.CanvasTexture(sprCanvas);
+      pileSprite.minFilter = THREE.LinearFilter;
+      pileSprite.magFilter = THREE.LinearFilter;
+      pileSprite.needsUpdate = true;
+
+      const geo = new THREE.BufferGeometry();
+      const posArr = new Float32Array(pileData.length * 3);
+      const colArr = new Float32Array(pileData.length * 3);
+      geo.setAttribute("position", new THREE.BufferAttribute(posArr, 3));
+      geo.setAttribute("color",    new THREE.BufferAttribute(colArr, 3));
+
+      const pileMat = new THREE.PointsMaterial({
+        size: 14,                 // pixels (sizeAttenuation off = constant screen size)
+        map: pileSprite,
+        vertexColors: true,
+        transparent: true,
+        alphaTest: 0.35,
+        depthWrite: false,
+        sizeAttenuation: false,
+      });
+      pileMesh = new THREE.Points(geo, pileMat);
+      pileMesh.frustumCulled = false;
+      // Initial color buffer fill.
+      {
+        const c = new THREE.Color();
+        for (let i = 0; i < pileData.length; i++) {
+          c.set(pileColorHex(pileData[i]));
+          colArr[i*3+0] = c.r; colArr[i*3+1] = c.g; colArr[i*3+2] = c.b;
+        }
+      }
       scene.add(pileMesh);
 
-      // Add thin "stalks" beneath each pile for a "pegged" look using LineSegments
-      // (sized once; geometry is rewritten on every transform change.)
-      const stalkPos = new Float32Array(pileData.length * 6);
-      const stalkCol = new Float32Array(pileData.length * 6);
-      for (let i = 0; i < pileData.length; i++) {
-        const p = pileData[i];
-        const baseY = p.position.y;
-        const topY = baseY + floatHeight;
-        stalkPos[i*6+0] = p.position.x; stalkPos[i*6+1] = baseY; stalkPos[i*6+2] = p.position.z;
-        stalkPos[i*6+3] = p.position.x; stalkPos[i*6+4] = topY;  stalkPos[i*6+5] = p.position.z;
-        tmpColor.set(pileColorHex(p));
-        stalkCol[i*6+0] = tmpColor.r; stalkCol[i*6+1] = tmpColor.g; stalkCol[i*6+2] = tmpColor.b;
-        stalkCol[i*6+3] = tmpColor.r; stalkCol[i*6+4] = tmpColor.g; stalkCol[i*6+5] = tmpColor.b;
-      }
-      const stalkGeo = new THREE.BufferGeometry();
-      stalkGeo.setAttribute("position", new THREE.BufferAttribute(stalkPos, 3));
-      stalkGeo.setAttribute("color", new THREE.BufferAttribute(stalkCol, 3));
-      const stalkMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 });
-      const stalks = new THREE.LineSegments(stalkGeo, stalkMat);
-      scene.add(stalks);
-      pileStalks = stalks;
-      pileMesh.userData.stalks = stalks;
-      // Now that mesh+stalks exist, push the initial transform-driven positions.
+      // Stalks are no longer rendered: 2D points sit on top of the surface
+      // naturally. (`pileStalks` stays null; rebuild functions handle it.)
+      pileStalks = null;
       rebuildPileMeshFromPositions();
+
+      // Raycaster tolerance for Points (world-space).
+      raycaster.params.Points = { threshold: markerRadius * 1.4 };
 
       // Highlight ring (used when a pile is selected)
       const ringGeo = new THREE.RingGeometry(markerRadius * 1.4, markerRadius * 2.0, 28);
@@ -1044,11 +1049,23 @@
         groupCentroidsGlobal[g] = pdfToGlobalXZ(c.x, c.y);
       }
     }
+    // True while the user is mid-drag / dragging a slider. In that state we
+    // skip the per-pile terrain raycast (the dominant cost) and use a flat
+    // mean Y so updates are O(N). When `interactive` flips back to false we
+    // settle every pile back onto the real surface in one pass.
+    let interactive = false;
     function recomputePileWorldPositions() {
       if (!layoutCtx || !pileData.length) return;
-      // Global-transform centroids must be fresh before pdfToWorldXZ runs
-      // (per-group transforms rotate/scale around them).
       recomputeGroupCentroidsGlobal();
+      if (interactive) {
+        const flatY = (layoutCtx.bbox.min.y + layoutCtx.bbox.max.y) / 2;
+        for (let i = 0; i < pileData.length; i++) {
+          const p = pileData[i];
+          const w = pdfToWorldXZ(p.srcX, p.srcY, p.group);
+          p.position.set(w.x, flatY, w.z);
+        }
+        return;
+      }
       const yAbove = layoutCtx.bbox.max.y + 0.5;
       const fallbackY = layoutCtx.bbox.min.y + (layoutCtx.bbox.max.y - layoutCtx.bbox.min.y) * 0.5;
       for (let i = 0; i < pileData.length; i++) {
@@ -1061,36 +1078,50 @@
       }
     }
     // Push the current pileData[].position into the InstancedMesh + stalk geo.
+    // Push pileData positions into the Points geometry buffer.
+    // Hidden piles get y = -1e6 so they're off-screen but the indices stay
+    // stable for raycaster hits / filter toggling.
+    const HIDDEN_Y = -1e6;
     function rebuildPileMeshFromPositions() {
-      if (!pileMesh || !pileStalks) return;
-      const m = new THREE.Matrix4();
-      const sV = new THREE.Vector3(1, 1, 1);
-      const sH = new THREE.Vector3(0.0001, 0.0001, 0.0001);
-      const stalkPos = pileStalks.geometry.attributes.position.array;
+      if (!pileMesh) return;
+      const pos = pileMesh.geometry.attributes.position.array;
       for (let i = 0; i < pileData.length; i++) {
         const p = pileData[i];
         const visible = visibleMask[i] !== false;
-        m.makeTranslation(p.position.x, p.position.y + markerFloatHeight, p.position.z);
-        m.scale(visible ? sV : sH);
-        pileMesh.setMatrixAt(i, m);
-        stalkPos[i*6+0] = p.position.x;
-        stalkPos[i*6+1] = p.position.y;
-        stalkPos[i*6+2] = p.position.z;
-        stalkPos[i*6+3] = p.position.x;
-        stalkPos[i*6+4] = p.position.y + markerFloatHeight;
-        stalkPos[i*6+5] = p.position.z;
+        pos[i*3+0] = p.position.x;
+        pos[i*3+1] = visible ? (p.position.y + markerFloatHeight) : HIDDEN_Y;
+        pos[i*3+2] = p.position.z;
       }
-      pileMesh.instanceMatrix.needsUpdate = true;
-      pileStalks.geometry.attributes.position.needsUpdate = true;
+      pileMesh.geometry.attributes.position.needsUpdate = true;
     }
-    function applyTransform({ persist = true } = {}) {
+    // Settle pile Y values onto the real surface after an interactive pass.
+    let settleTimer = null;
+    function scheduleSurfaceSettle() {
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        settleTimer = null;
+        interactive = false;
+        recomputePileWorldPositions();
+        rebuildPileMeshFromPositions();
+        if (selectedIndex >= 0 && selectedIndex < pileData.length) {
+          const p = pileData[selectedIndex];
+          const ring = pileMesh && pileMesh.userData && pileMesh.userData.ring;
+          if (ring && ring.visible) ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
+        }
+      }, 120);
+    }
+    function applyTransform({ persist = true, interactive: int = false } = {}) {
+      interactive = !!int;
       recomputePileWorldPositions();
       rebuildPileMeshFromPositions();
-      // Refresh the highlight ring.
       if (selectedIndex >= 0 && selectedIndex < pileData.length) {
         const p = pileData[selectedIndex];
         const ring = pileMesh && pileMesh.userData && pileMesh.userData.ring;
         if (ring && ring.visible) ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
+      }
+      if (interactive) {
+        // Queue a settle so dots return to true surface Y when interaction stops.
+        scheduleSurfaceSettle();
       }
       if (persist) saveTransform();
       updateAlignSliderLabels();
@@ -1159,19 +1190,16 @@
       });
     });
 
-    // Refresh per-instance colors + stalk colors after a colorMode change.
+    // Refresh per-point colors after a colorMode change.
     function recolorPiles() {
-      if (!pileMesh || !pileStalks) return;
+      if (!pileMesh) return;
       const c = new THREE.Color();
-      const stalkCol = pileStalks.geometry.attributes.color.array;
+      const col = pileMesh.geometry.attributes.color.array;
       for (let i = 0; i < pileData.length; i++) {
         c.set(pileColorHex(pileData[i]));
-        pileMesh.setColorAt(i, c);
-        stalkCol[i*6+0] = c.r; stalkCol[i*6+1] = c.g; stalkCol[i*6+2] = c.b;
-        stalkCol[i*6+3] = c.r; stalkCol[i*6+4] = c.g; stalkCol[i*6+5] = c.b;
+        col[i*3+0] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
       }
-      if (pileMesh.instanceColor) pileMesh.instanceColor.needsUpdate = true;
-      pileStalks.geometry.attributes.color.needsUpdate = true;
+      pileMesh.geometry.attributes.color.needsUpdate = true;
     }
 
     // Apply lock state to the alignment UI.
@@ -1244,22 +1272,20 @@
       });
     }
 
-    const _matrix = new THREE.Matrix4();
-    const _scaleVisible = new THREE.Vector3(1, 1, 1);
-    const _scaleHidden = new THREE.Vector3(0.0001, 0.0001, 0.0001);
     function applyFilters() {
       if (!pileMesh) return;
+      const pos = pileMesh.geometry.attributes.position.array;
       let visibleCount = 0;
       for (let i = 0; i < pileData.length; i++) {
         const p = pileData[i];
         const isVisible = !colorFilter.has(p.color) && !groupFilter.has(p.group);
         visibleMask[i] = isVisible;
-        _matrix.makeTranslation(p.position.x, p.position.y + markerFloatHeight, p.position.z);
-        _matrix.scale(isVisible ? _scaleVisible : _scaleHidden);
-        pileMesh.setMatrixAt(i, _matrix);
+        pos[i*3+0] = p.position.x;
+        pos[i*3+1] = isVisible ? (p.position.y + markerFloatHeight) : HIDDEN_Y;
+        pos[i*3+2] = p.position.z;
         if (isVisible) visibleCount++;
       }
-      pileMesh.instanceMatrix.needsUpdate = true;
+      pileMesh.geometry.attributes.position.needsUpdate = true;
       $("stats").textContent = `${visibleCount} / ${pileData.length} piles visible`;
     }
 
@@ -1273,9 +1299,9 @@
       pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
       const hits = raycaster.intersectObject(pileMesh);
-      const hit = hits.find(h => visibleMask[h.instanceId]);
+      const hit = hits.find(h => visibleMask[h.index]);
       if (hit) {
-        const idx = hit.instanceId;
+        const idx = hit.index;
         if (idx !== hoverIndex) {
           hoverIndex = idx;
           renderer.domElement.style.cursor = "pointer";
@@ -1349,8 +1375,8 @@
       pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
       const hits = raycaster.intersectObject(pileMesh);
-      const hit = hits.find(h => visibleMask[h.instanceId]);
-      if (hit) selectPile(hit.instanceId);
+      const hit = hits.find(h => visibleMask[h.index]);
+      if (hit) selectPile(hit.index);
     });
 
     // Escape exits anchor mode + drag mode.
@@ -1418,7 +1444,7 @@
         const factor = Math.pow(1.01, dy);
         t.scale = Math.max(0.02, dragState.initial.scale * factor);
       }
-      applyTransform({ persist: false });
+      applyTransform({ persist: false, interactive: true });
       syncAlignUIFromTransform();
     });
     let suppressClickUntil = 0;
@@ -1432,6 +1458,10 @@
       if (moved) suppressClickUntil = performance.now() + 300;
       dragState = null;
       controls.enabled = true;
+      // Settle every pile back onto the real surface now that the drag ended.
+      interactive = false;
+      recomputePileWorldPositions();
+      rebuildPileMeshFromPositions();
     }
     renderer.domElement.addEventListener("pointerup", endDrag);
     renderer.domElement.addEventListener("pointercancel", endDrag);
@@ -1596,7 +1626,7 @@
       const r = $(rangeId), n = $(numId);
       r.addEventListener("input", () => {
         activeTransform()[key] = parseFloat(r.value) || 0;
-        applyTransform({ persist: false });
+        applyTransform({ persist: false, interactive: true });
       });
       r.addEventListener("change", () => persistActive());
       n.addEventListener("change", () => {
@@ -1909,9 +1939,9 @@
       // Step 0 & 2: pick a pile
       if (anchor.step === 0 || anchor.step === 2) {
         const hits = raycaster.intersectObject(pileMesh);
-        const hit = hits.find(h => visibleMask[h.instanceId]);
+        const hit = hits.find(h => visibleMask[h.index]);
         if (!hit) { toast("Click directly on a white pile dot"); return true; }
-        const p = pileData[hit.instanceId];
+        const p = pileData[hit.index];
         if (anchor.step === 0) anchor.A = { pilePdfX: p.srcX, pilePdfY: p.srcY };
         else anchor.B = { pilePdfX: p.srcX, pilePdfY: p.srcY };
         anchor.step++;
