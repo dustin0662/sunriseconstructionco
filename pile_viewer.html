@@ -304,10 +304,49 @@
   #align-panel {
     top: 70px;
     right: 210px;
-    width: 260px;
+    width: 280px;
+    max-height: calc(100% - 100px);
+    overflow-y: auto;
     padding: 12px 14px;
     font-size: 12px;
   }
+  .align-section { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.07); }
+  .align-section-label {
+    color: var(--muted); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+  .hint { color: var(--muted); font-size: 10.5px; line-height: 1.4; margin-top: 4px; }
+  #edit-target-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .target-btn {
+    background: rgba(255,255,255,0.06);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    line-height: 1.2;
+    font-family: inherit;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .target-btn:hover { background: rgba(255,255,255,0.12); }
+  .target-btn.active {
+    background: rgba(249,115,22,0.25);
+    border-color: rgba(249,115,22,0.55);
+    color: #ffd9b4;
+  }
+  .target-btn .dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); }
+  .edit-mode-row { display: flex; gap: 4px; }
+  .edit-mode-btn { flex: 1; padding: 4px 0; font-size: 11px; }
+  .edit-mode-btn.active {
+    background: rgba(59,130,246,0.28);
+    border-color: rgba(59,130,246,0.55);
+    color: #cfe3ff;
+  }
+  body.drag-mode-translate #app canvas { cursor: move !important; }
+  body.drag-mode-rotate    #app canvas { cursor: ew-resize !important; }
+  body.drag-mode-scale     #app canvas { cursor: ns-resize !important; }
   #align-panel h3 {
     margin: 0 0 8px;
     font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
@@ -426,11 +465,6 @@
     </div>
   </div>
 
-  <div id="legend" class="panel">
-    <h3>Post Type Legend</h3>
-    <div id="legend-rows"></div>
-  </div>
-
   <div id="groups" class="panel">
     <h3>Groups</h3>
     <div id="group-rows"></div>
@@ -438,6 +472,23 @@
 
   <div id="align-panel" class="panel admin-only">
     <h3>Alignment</h3>
+
+    <div class="align-section">
+      <div class="align-section-label">Edit target</div>
+      <div id="edit-target-row"></div>
+    </div>
+
+    <div class="align-section">
+      <div class="align-section-label">Drag mode</div>
+      <div class="edit-mode-row">
+        <button class="btn edit-mode-btn" data-mode="">None</button>
+        <button class="btn edit-mode-btn" data-mode="translate">Move</button>
+        <button class="btn edit-mode-btn" data-mode="rotate">Rotate</button>
+        <button class="btn edit-mode-btn" data-mode="scale">Resize</button>
+      </div>
+      <div class="hint" id="drag-hint">Pick a Drag mode, then drag on the terrain. Lock to stop.</div>
+    </div>
+
     <div class="align-row">
       <label>Translate X</label>
       <input type="range" id="align-tx" min="-5" max="5" step="0.005" value="0" />
@@ -496,7 +547,6 @@
   <div id="info" class="panel">
     <button class="close" id="info-close" aria-label="Close">×</button>
     <div class="head">
-      <div class="swatch" id="info-swatch"></div>
       <div>
         <div class="serial" id="info-serial">P-0000</div>
         <div id="info-photo-tag" style="display:none; margin-top: 4px;"><span class="has-photo-indicator">PHOTO</span></div>
@@ -517,14 +567,7 @@
       <input type="text" id="serial-input" placeholder="P-0001" maxlength="64" />
     </div>
 
-    <div class="row"><span class="k">Group</span><span class="v" id="info-group">—</span></div>
-    <div class="row"><span class="k">Post Type</span><span class="v" id="info-type">—</span></div>
-    <div class="row"><span class="k">Shape</span><span class="v" id="info-shape">—</span></div>
-    <div class="row"><span class="k">Embedment</span><span class="v" id="info-embed">—</span></div>
-    <div class="row"><span class="k">Length</span><span class="v" id="info-length">—</span></div>
-    <div class="row"><span class="k">Color</span><span class="v" id="info-color">—</span></div>
-    <div class="row"><span class="k">Surface elev.</span><span class="v" id="info-y">—</span></div>
-    <div class="row"><span class="k">Pile ID</span><span class="v" id="info-pid" style="font-size:10.5px; color: var(--muted)">—</span></div>
+    <div class="row"><span class="k">Pile ID</span><span class="v" id="info-pid">—</span></div>
 
     <div class="button-row admin-only">
       <button class="btn primary" id="info-save">Save</button>
@@ -686,6 +729,31 @@
     const TRANSFORM_KEY = "midway_pile_transform_v1";
     let transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
     let layoutCtx = null;
+    // Per-group transforms (applied AFTER the global transform, around each
+    // group's own centroid). Persisted under a separate key from `transform`.
+    const GROUP_TRANSFORMS_KEY = "midway_pile_group_transforms_v1";
+    let groupTransforms = {};   // { [groupName]: { tx, tz, rotDeg, scale } }
+    try {
+      const raw = localStorage.getItem(GROUP_TRANSFORMS_KEY);
+      if (raw) groupTransforms = JSON.parse(raw) || {};
+    } catch (_) { groupTransforms = {}; }
+    function saveGroupTransforms() {
+      try { localStorage.setItem(GROUP_TRANSFORMS_KEY, JSON.stringify(groupTransforms)); } catch (_) {}
+    }
+    function gtFor(group) {
+      if (!group) return null;
+      return groupTransforms[group] || null;
+    }
+    function ensureGT(group) {
+      if (!groupTransforms[group]) groupTransforms[group] = { tx: 0, tz: 0, rotDeg: 0, scale: 1 };
+      return groupTransforms[group];
+    }
+
+    // Edit target: 'ALL' (global transform) or a group name (per-group transform).
+    let editTarget = "ALL";
+    // Edit mode: null | 'translate' | 'rotate' | 'scale'. Determines what
+    // mouse drag on the canvas does when the layout is unlocked.
+    let editMode = null;
     // Group colors — N7-A blue and N8 green per spec, others distinct.
     const GROUP_COLORS = {
       'N1':   '#f87171',
@@ -813,6 +881,7 @@
         srcX: p.cx,         // raw PDF coords kept for transform math
         srcY: p.cy,
       }));
+      computeGroupCentroidsPDF();
       recomputePileWorldPositions();
 
       visibleMask = new Array(pileData.length).fill(true);
@@ -885,8 +954,8 @@
       pileMesh.userData.ring = ring;
 
       // -- UI panels
-      buildLegendUI(data.meta);
       buildGroupUI(data.meta);
+      buildEditTargetUI();
       syncAlignUIFromTransform();
       // Color-mode + lock UI state on load
       document.querySelectorAll(".color-mode-btn").forEach(b => {
@@ -917,7 +986,8 @@
     //   (modelCenterX + tx, modelCenterZ + tz). Y is set by raycasting down.
     const _downRay = new THREE.Raycaster();
     const _downDir = new THREE.Vector3(0, -1, 0);
-    function pdfToWorldXZ(srcX, srcY) {
+    // PDF -> model-centered XZ via global transform only (no per-group).
+    function pdfToGlobalXZ(srcX, srcY) {
       const ctx = layoutCtx;
       const gx = transform.geoStretchX || 1;
       const gz = transform.geoStretchZ || 1;
@@ -925,20 +995,65 @@
       const dz = -(srcY - ctx.pdfCenterY) * ctx.baseScale * transform.scale * gz;
       const rad = transform.rotDeg * Math.PI / 180;
       const c = Math.cos(rad), s = Math.sin(rad);
-      const rx = dx * c - dz * s;
-      const rz = dx * s + dz * c;
       return {
-        x: ctx.modelCenterX + transform.tx + rx,
-        z: ctx.modelCenterZ + transform.tz + rz,
+        x: transform.tx + (dx * c - dz * s),
+        z: transform.tz + (dx * s + dz * c),
       };
+    }
+    function pdfToWorldXZ(srcX, srcY, group) {
+      const ctx = layoutCtx;
+      const g = pdfToGlobalXZ(srcX, srcY);
+      let x = g.x, z = g.z;
+      const gt = gtFor(group);
+      if (gt && (gt.tx || gt.tz || gt.rotDeg || gt.scale !== 1)) {
+        // Rotate/scale around the group's GLOBAL-transform centroid.
+        const c = groupCentroidsGlobal[group] || { x: 0, z: 0 };
+        let lx = x - c.x;
+        let lz = z - c.z;
+        const r = gt.rotDeg * Math.PI / 180;
+        const cs = Math.cos(r), sn = Math.sin(r);
+        const rx = lx * cs - lz * sn;
+        const rz = lx * sn + lz * cs;
+        lx = rx * gt.scale;
+        lz = rz * gt.scale;
+        x = lx + c.x + gt.tx;
+        z = lz + c.z + gt.tz;
+      }
+      return { x: ctx.modelCenterX + x, z: ctx.modelCenterZ + z };
+    }
+    // Group centroids in PDF coords (cached) and in global-transform coords
+    // (recomputed on every transform change).
+    let groupCentroidsPDF = {};
+    let groupCentroidsGlobal = {};
+    function computeGroupCentroidsPDF() {
+      const sums = {};
+      for (const p of pileData) {
+        const g = p.group; if (!g) continue;
+        if (!sums[g]) sums[g] = { x: 0, y: 0, n: 0 };
+        sums[g].x += p.srcX; sums[g].y += p.srcY; sums[g].n++;
+      }
+      groupCentroidsPDF = {};
+      for (const g of Object.keys(sums)) {
+        groupCentroidsPDF[g] = { x: sums[g].x / sums[g].n, y: sums[g].y / sums[g].n };
+      }
+    }
+    function recomputeGroupCentroidsGlobal() {
+      groupCentroidsGlobal = {};
+      for (const g of Object.keys(groupCentroidsPDF)) {
+        const c = groupCentroidsPDF[g];
+        groupCentroidsGlobal[g] = pdfToGlobalXZ(c.x, c.y);
+      }
     }
     function recomputePileWorldPositions() {
       if (!layoutCtx || !pileData.length) return;
+      // Global-transform centroids must be fresh before pdfToWorldXZ runs
+      // (per-group transforms rotate/scale around them).
+      recomputeGroupCentroidsGlobal();
       const yAbove = layoutCtx.bbox.max.y + 0.5;
       const fallbackY = layoutCtx.bbox.min.y + (layoutCtx.bbox.max.y - layoutCtx.bbox.min.y) * 0.5;
       for (let i = 0; i < pileData.length; i++) {
         const p = pileData[i];
-        const w = pdfToWorldXZ(p.srcX, p.srcY);
+        const w = pdfToWorldXZ(p.srcX, p.srcY, p.group);
         _downRay.set(new THREE.Vector3(w.x, yAbove, w.z), _downDir);
         const hits = _downRay.intersectObjects(layoutCtx.rayTargets, false);
         const y = hits.length ? hits[0].point.y : fallbackY;
@@ -971,21 +1086,78 @@
     function applyTransform({ persist = true } = {}) {
       recomputePileWorldPositions();
       rebuildPileMeshFromPositions();
-      // Refresh the highlight ring + the info panel's surface elevation.
+      // Refresh the highlight ring.
       if (selectedIndex >= 0 && selectedIndex < pileData.length) {
         const p = pileData[selectedIndex];
         const ring = pileMesh && pileMesh.userData && pileMesh.userData.ring;
         if (ring && ring.visible) ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
-        $("info-y").textContent = p.position.y.toFixed(3);
       }
       if (persist) saveTransform();
       updateAlignSliderLabels();
     }
     function resetTransform() {
-      transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
+      if (editTarget === "ALL") {
+        transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
+      } else {
+        delete groupTransforms[editTarget];
+        saveGroupTransforms();
+      }
       applyTransform();
       syncAlignUIFromTransform();
     }
+
+    // Edit-target buttons (one per group + "All")
+    function buildEditTargetUI() {
+      const container = $("edit-target-row");
+      container.innerHTML = "";
+      const all = document.createElement("button");
+      all.className = "target-btn";
+      all.dataset.target = "ALL";
+      all.textContent = "All";
+      container.appendChild(all);
+      const order = ["N1","N2","N3","N4","N5","N6","N7-A","N7-B","N8","N9"];
+      order.forEach(g => {
+        if (!groupCentroidsPDF[g]) return;
+        const b = document.createElement("button");
+        b.className = "target-btn";
+        b.dataset.target = g;
+        b.innerHTML = `<span class="dot" style="background:${GROUP_COLORS[g] || '#fff'}"></span>${g}`;
+        container.appendChild(b);
+      });
+      container.querySelectorAll(".target-btn").forEach(b => {
+        b.addEventListener("click", () => setEditTarget(b.dataset.target));
+      });
+      refreshEditTargetActive();
+    }
+    function refreshEditTargetActive() {
+      document.querySelectorAll("#edit-target-row .target-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.target === editTarget);
+      });
+    }
+    function setEditTarget(t) {
+      editTarget = t;
+      refreshEditTargetActive();
+      syncAlignUIFromTransform();
+      const note = (t === "ALL")
+        ? "Editing the whole layout."
+        : `Editing ${t} (relative to whole-layout placement).`;
+      $("drag-hint").textContent = `${note} Pick a Drag mode and drag on the terrain.`;
+    }
+    function setEditMode(m) {
+      editMode = m || null;
+      document.querySelectorAll(".edit-mode-btn").forEach(b => {
+        b.classList.toggle("active", (b.dataset.mode || null) === editMode);
+      });
+      document.body.classList.toggle("drag-mode-translate", editMode === "translate");
+      document.body.classList.toggle("drag-mode-rotate", editMode === "rotate");
+      document.body.classList.toggle("drag-mode-scale", editMode === "scale");
+    }
+    document.querySelectorAll(".edit-mode-btn").forEach(b => {
+      b.addEventListener("click", () => {
+        if (layoutLocked) { toast("Layout is locked"); return; }
+        setEditMode(b.dataset.mode || null);
+      });
+    });
 
     // Refresh per-instance colors + stalk colors after a colorMode change.
     function recolorPiles() {
@@ -1131,15 +1303,7 @@
       const p = pileData[index];
       const a = assignments[p.pileId] || {};
       $("info-serial").textContent = a.serial || p.serial;
-      $("info-group").textContent = p.group || "—";
-      $("info-type").textContent = p.postType || "—";
-      $("info-shape").textContent = p.shape || "—";
-      $("info-embed").textContent = (p.embedment != null) ? (p.embedment + ' ft') : "—";
-      $("info-length").textContent = (p.length != null) ? (p.length + '"') : "—";
-      $("info-color").textContent = p.color;
-      $("info-y").textContent = p.position.y.toFixed(3);
       $("info-pid").textContent = p.pileId;
-      $("info-swatch").style.background = p.hex;
       // Photo
       const photoWrap = $("info-photo-wrap");
       photoWrap.innerHTML = "";
@@ -1177,6 +1341,7 @@
 
     renderer.domElement.addEventListener("click", (e) => {
       if (!pileMesh) return;
+      if (performance.now() < suppressClickUntil) return;
       // Anchor mode consumes clicks first.
       if (anchor.active && handleAnchorClick(e)) return;
       const r = renderer.domElement.getBoundingClientRect();
@@ -1188,10 +1353,88 @@
       if (hit) selectPile(hit.instanceId);
     });
 
-    // Escape exits anchor mode.
+    // Escape exits anchor mode + drag mode.
     window.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && anchor.active) exitAnchorMode("Anchor mode cancelled.");
+      if (e.key === "Escape") {
+        if (anchor.active) exitAnchorMode("Anchor mode cancelled.");
+        if (editMode) setEditMode(null);
+      }
     });
+
+    // ---- Direct mouse drag on canvas for translate/rotate/scale ------------
+    // Active when layoutLocked=false AND editMode is set. Disables OrbitControls
+    // for the duration of the drag and applies the change to the active target's
+    // transform (global or per-group).
+    const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const _ray = new THREE.Raycaster();
+    let dragState = null;
+    function pointerToGroundXZ(e, planeY) {
+      const r = renderer.domElement.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - r.left) / r.width) * 2 - 1,
+        -((e.clientY - r.top) / r.height) * 2 + 1,
+      );
+      _ray.setFromCamera(ndc, camera);
+      _groundPlane.constant = -planeY;
+      const out = new THREE.Vector3();
+      const hit = _ray.ray.intersectPlane(_groundPlane, out);
+      return hit ? { x: out.x, z: out.z } : null;
+    }
+
+    renderer.domElement.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      if (layoutLocked || !editMode || anchor.active) return;
+      // Use the layout's mean Y as the ground plane for translate math.
+      const planeY = (layoutCtx.bbox.min.y + layoutCtx.bbox.max.y) / 2;
+      const startW = pointerToGroundXZ(e, planeY);
+      if (!startW) return;
+      const t = activeTransform();
+      dragState = {
+        mode: editMode,
+        target: editTarget,
+        startX: e.clientX, startY: e.clientY,
+        startWorld: startW,
+        planeY,
+        initial: { tx: t.tx || 0, tz: t.tz || 0, rotDeg: t.rotDeg || 0, scale: t.scale || 1 },
+      };
+      controls.enabled = false;
+      try { renderer.domElement.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    renderer.domElement.addEventListener("pointermove", (e) => {
+      if (!dragState) return;
+      const t = (dragState.target === "ALL") ? transform : ensureGT(dragState.target);
+      if (dragState.mode === "translate") {
+        const w = pointerToGroundXZ(e, dragState.planeY);
+        if (!w) return;
+        t.tx = dragState.initial.tx + (w.x - dragState.startWorld.x);
+        t.tz = dragState.initial.tz + (w.z - dragState.startWorld.z);
+      } else if (dragState.mode === "rotate") {
+        // Horizontal pixels -> degrees. Right = clockwise.
+        const dx = e.clientX - dragState.startX;
+        t.rotDeg = dragState.initial.rotDeg + dx * 0.4;
+      } else if (dragState.mode === "scale") {
+        // Vertical pixels (up = bigger). Exponential so feel is symmetric.
+        const dy = dragState.startY - e.clientY;
+        const factor = Math.pow(1.01, dy);
+        t.scale = Math.max(0.02, dragState.initial.scale * factor);
+      }
+      applyTransform({ persist: false });
+      syncAlignUIFromTransform();
+    });
+    let suppressClickUntil = 0;
+    function endDrag(e) {
+      if (!dragState) return;
+      try { renderer.domElement.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (dragState.target === "ALL") saveTransform();
+      else saveGroupTransforms();
+      // Block the click that fires immediately after a drag-up.
+      const moved = Math.hypot(e.clientX - dragState.startX, e.clientY - dragState.startY) > 3;
+      if (moved) suppressClickUntil = performance.now() + 300;
+      dragState = null;
+      controls.enabled = true;
+    }
+    renderer.domElement.addEventListener("pointerup", endDrag);
+    renderer.domElement.addEventListener("pointercancel", endDrag);
 
     $("info-close").addEventListener("click", () => {
       $("info").classList.remove("shown");
@@ -1324,35 +1567,45 @@
 
     // ---- Alignment UI ------------------------------------------------------
     function syncAlignUIFromTransform() {
-      $("align-tx").value = transform.tx;
-      $("align-tx-num").value = transform.tx.toFixed(3);
-      $("align-tz").value = transform.tz;
-      $("align-tz-num").value = transform.tz.toFixed(3);
-      $("align-rot").value = transform.rotDeg;
-      $("align-rot-num").value = transform.rotDeg.toFixed(2);
-      $("align-scale").value = transform.scale;
-      $("align-scale-num").value = transform.scale.toFixed(3);
+      const t = activeTransform();
+      $("align-tx").value = t.tx;
+      $("align-tx-num").value = (t.tx || 0).toFixed(3);
+      $("align-tz").value = t.tz;
+      $("align-tz-num").value = (t.tz || 0).toFixed(3);
+      $("align-rot").value = t.rotDeg;
+      $("align-rot-num").value = (t.rotDeg || 0).toFixed(2);
+      $("align-scale").value = t.scale;
+      $("align-scale-num").value = (t.scale || 1).toFixed(3);
     }
     function updateAlignSliderLabels() {
-      // Numbers track sliders so user sees exact values.
-      $("align-tx-num").value = transform.tx.toFixed(3);
-      $("align-tz-num").value = transform.tz.toFixed(3);
-      $("align-rot-num").value = transform.rotDeg.toFixed(2);
-      $("align-scale-num").value = transform.scale.toFixed(3);
+      const t = activeTransform();
+      $("align-tx-num").value = (t.tx || 0).toFixed(3);
+      $("align-tz-num").value = (t.tz || 0).toFixed(3);
+      $("align-rot-num").value = (t.rotDeg || 0).toFixed(2);
+      $("align-scale-num").value = (t.scale || 1).toFixed(3);
     }
-    function bindAlign(rangeId, numId, key, decimals = 3) {
+    // Returns the active transform object (global or per-group).
+    function activeTransform() {
+      return editTarget === "ALL" ? transform : ensureGT(editTarget);
+    }
+    function persistActive() {
+      if (editTarget === "ALL") saveTransform();
+      else saveGroupTransforms();
+    }
+    function bindAlign(rangeId, numId, key) {
       const r = $(rangeId), n = $(numId);
       r.addEventListener("input", () => {
-        transform[key] = parseFloat(r.value) || 0;
+        activeTransform()[key] = parseFloat(r.value) || 0;
         applyTransform({ persist: false });
       });
-      r.addEventListener("change", () => saveTransform());
+      r.addEventListener("change", () => persistActive());
       n.addEventListener("change", () => {
         const v = parseFloat(n.value);
         if (!Number.isFinite(v)) return;
-        transform[key] = v;
+        activeTransform()[key] = v;
         r.value = v;
-        applyTransform();
+        applyTransform({ persist: false });
+        persistActive();
       });
     }
     bindAlign("align-tx", "align-tx-num", "tx");
@@ -1367,20 +1620,36 @@
 
     $("btn-lock").addEventListener("click", () => {
       layoutLocked = !layoutLocked;
+      if (layoutLocked) setEditMode(null);
       applyLockState();
       toast(layoutLocked ? "Layout locked" : "Layout unlocked — alignment editable");
     });
 
     $("btn-flip-x").addEventListener("click", () => {
       if (layoutLocked) return;
-      transform.geoStretchX = (transform.geoStretchX || 1) * -1;
+      const t = activeTransform();
+      if (editTarget === "ALL") {
+        t.geoStretchX = (t.geoStretchX || 1) * -1;
+      } else {
+        t.scale = -(t.scale || 1);  // per-group flip via negative scale
+      }
       applyTransform();
+      persistActive();
       toast("Flipped horizontally");
     });
     $("btn-flip-z").addEventListener("click", () => {
       if (layoutLocked) return;
-      transform.geoStretchZ = (transform.geoStretchZ || 1) * -1;
+      const t = activeTransform();
+      if (editTarget === "ALL") {
+        t.geoStretchZ = (t.geoStretchZ || 1) * -1;
+      } else {
+        // For per-group, "Flip Z" rotates 180° (simpler than a Z stretch).
+        t.rotDeg = (t.rotDeg || 0) + 180;
+        // Also negate scale to mirror Z relative to centroid.
+        t.scale = -(t.scale || 1);
+      }
       applyTransform();
+      persistActive();
       toast("Flipped vertically");
     });
 
