@@ -17,10 +17,10 @@ KMZ_FILES = os.path.join(os.path.dirname(__file__), "..", "data", "kmz", "files"
 KMZ_JSON = os.path.join(os.path.dirname(__file__), "..", "data", "kmz_reference.json")
 OUT = os.path.join(os.path.dirname(__file__), "..", "data", "cad_cells.json")
 
-# Approx grid pitch in pixels (square cells). Tuned for ~few-thousand cells.
-PITCH = float(os.environ.get("CELL_PITCH", "13"))
+# Approx grid pitch in pixels. ~one cell per module (modules ≈ 4.5px here).
+PITCH = float(os.environ.get("CELL_PITCH", "4.5"))
 # Min fraction of array-mask coverage in a cell to keep it.
-MIN_COVER = 0.45
+MIN_COVER = float(os.environ.get("MIN_COVER", "0.5"))
 
 
 def array_mask(im):
@@ -45,13 +45,17 @@ def main():
         im = Image.open(path)
         W, H = im.size
         mask = array_mask(im)
-        p = int(round(PITCH))
+        p = PITCH
+        cols = int((W - p) / p)
+        rows = int((H - p) / p)
         cells = []
-        for y in range(0, H - p, p):
-            for x in range(0, W - p, p):
-                block = mask[y:y+p, x:x+p]
-                if block.mean() >= MIN_COVER:
-                    # normalized center
+        for ry in range(rows):
+            y = int(round(ry * p))
+            for rx in range(cols):
+                x = int(round(rx * p))
+                pe = int(round(p))
+                block = mask[y:y+pe, x:x+pe]
+                if block.size and block.mean() >= MIN_COVER:
                     u = (x + p/2) / W
                     v = (y + p/2) / H
                     cells.append([round(u, 4), round(v, 4)])
