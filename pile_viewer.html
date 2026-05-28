@@ -681,8 +681,10 @@
       });
     }
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+    // Cap pixel ratio at 1: hi-DPI displays were paying 4x fragment cost
+    // for no real benefit on a sparse-foliage terrain + 2D point markers.
+    renderer.setPixelRatio(1);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.outputEncoding = THREE.sRGBEncoding;
     $("app").appendChild(renderer.domElement);
@@ -991,40 +993,63 @@
     //   (modelCenterX + tx, modelCenterZ + tz). Y is set by raycasting down.
     const _downRay = new THREE.Raycaster();
     const _downDir = new THREE.Vector3(0, -1, 0);
-    // PDF -> model-centered XZ via global transform only (no per-group).
-    function pdfToGlobalXZ(srcX, srcY) {
-      const ctx = layoutCtx;
-      const gx = transform.geoStretchX || 1;
-      const gz = transform.geoStretchZ || 1;
-      const dx = (srcX - ctx.pdfCenterX) * ctx.baseScale * transform.scale * gx;
-      const dz = -(srcY - ctx.pdfCenterY) * ctx.baseScale * transform.scale * gz;
-      const rad = transform.rotDeg * Math.PI / 180;
-      const c = Math.cos(rad), s = Math.sin(rad);
-      return {
-        x: transform.tx + (dx * c - dz * s),
-        z: transform.tz + (dx * s + dz * c),
-      };
+    // Cached values updated once per recompute pass — Math.cos / Math.sin
+    // are 2-3x more expensive than the multiply-adds in the hot loop, so we
+    // hoist them out and reuse across all 2932 piles.
+    let _gCos = 1, _gSin = 0, _gScaleX = 1, _gScaleZ = 1;
+    let _gTx = 0, _gTz = 0;
+    function refreshGlobalTrigCache() {
+      const rad = (transform.rotDeg || 0) * Math.PI / 180;
+      _gCos = Math.cos(rad); _gSin = Math.sin(rad);
+      const sc = transform.scale || 1;
+      _gScaleX = layoutCtx.baseScale * sc * (transform.geoStretchX || 1);
+      _gScaleZ = -layoutCtx.baseScale * sc * (transform.geoStretchZ || 1);
+      _gTx = transform.tx || 0;
+      _gTz = transform.tz || 0;
     }
-    function pdfToWorldXZ(srcX, srcY, group) {
-      const ctx = layoutCtx;
-      const g = pdfToGlobalXZ(srcX, srcY);
-      let x = g.x, z = g.z;
-      const gt = gtFor(group);
-      if (gt && (gt.tx || gt.tz || gt.rotDeg || gt.scale !== 1)) {
-        // Rotate/scale around the group's GLOBAL-transform centroid.
-        const c = groupCentroidsGlobal[group] || { x: 0, z: 0 };
-        let lx = x - c.x;
-        let lz = z - c.z;
-        const r = gt.rotDeg * Math.PI / 180;
-        const cs = Math.cos(r), sn = Math.sin(r);
-        const rx = lx * cs - lz * sn;
-        const rz = lx * sn + lz * cs;
-        lx = rx * gt.scale;
-        lz = rz * gt.scale;
-        x = lx + c.x + gt.tx;
-        z = lz + c.z + gt.tz;
+    // Output: writes into out.x / out.z. Returns the same object.
+    const _xzOut = { x: 0, z: 0 };
+    function pdfToGlobalXZ(srcX, srcY, out) {
+      const dx = (srcX - layoutCtx.pdfCenterX) * _gScaleX;
+      const dz = (srcY - layoutCtx.pdfCenterY) * _gScaleZ;
+      out.x = _gTx + (dx * _gCos - dz * _gSin);
+      out.z = _gTz + (dx * _gSin + dz * _gCos);
+      return out;
+    }
+    // Per-group trig cache: { [group]: { cos, sin, scale, tx, tz } }
+    let _groupTrig = {};
+    function refreshGroupTrigCache() {
+      _groupTrig = {};
+      for (const g of Object.keys(groupTransforms)) {
+        const gt = groupTransforms[g];
+        if (!gt) continue;
+        const r = (gt.rotDeg || 0) * Math.PI / 180;
+        _groupTrig[g] = {
+          cos: Math.cos(r), sin: Math.sin(r),
+          scale: (gt.scale === undefined ? 1 : gt.scale),
+          tx: gt.tx || 0, tz: gt.tz || 0,
+          active: !!(gt.tx || gt.tz || gt.rotDeg || (gt.scale !== undefined && gt.scale !== 1)),
+        };
       }
-      return { x: ctx.modelCenterX + x, z: ctx.modelCenterZ + z };
+    }
+    function pdfToWorldXZ(srcX, srcY, group, out) {
+      out = out || _xzOut;
+      pdfToGlobalXZ(srcX, srcY, out);
+      const gt = _groupTrig[group];
+      if (gt && gt.active) {
+        const c = groupCentroidsGlobal[group];
+        if (c) {
+          const lx = out.x - c.x;
+          const lz = out.z - c.z;
+          const rx = (lx * gt.cos - lz * gt.sin) * gt.scale;
+          const rz = (lx * gt.sin + lz * gt.cos) * gt.scale;
+          out.x = rx + c.x + gt.tx;
+          out.z = rz + c.z + gt.tz;
+        }
+      }
+      out.x += layoutCtx.modelCenterX;
+      out.z += layoutCtx.modelCenterZ;
+      return out;
     }
     // Group centroids in PDF coords (cached) and in global-transform coords
     // (recomputed on every transform change).
@@ -1044,9 +1069,11 @@
     }
     function recomputeGroupCentroidsGlobal() {
       groupCentroidsGlobal = {};
+      const tmp = { x: 0, z: 0 };
       for (const g of Object.keys(groupCentroidsPDF)) {
         const c = groupCentroidsPDF[g];
-        groupCentroidsGlobal[g] = pdfToGlobalXZ(c.x, c.y);
+        pdfToGlobalXZ(c.x, c.y, tmp);
+        groupCentroidsGlobal[g] = { x: tmp.x, z: tmp.z };
       }
     }
     // True while the user is mid-drag / dragging a slider. In that state we
@@ -1054,27 +1081,33 @@
     // mean Y so updates are O(N). When `interactive` flips back to false we
     // settle every pile back onto the real surface in one pass.
     let interactive = false;
+    const _rayOrigin = new THREE.Vector3();
     function recomputePileWorldPositions() {
       if (!layoutCtx || !pileData.length) return;
+      refreshGlobalTrigCache();
+      refreshGroupTrigCache();
       recomputeGroupCentroidsGlobal();
+      const out = _xzOut;
       if (interactive) {
         const flatY = (layoutCtx.bbox.min.y + layoutCtx.bbox.max.y) / 2;
         for (let i = 0; i < pileData.length; i++) {
           const p = pileData[i];
-          const w = pdfToWorldXZ(p.srcX, p.srcY, p.group);
-          p.position.set(w.x, flatY, w.z);
+          pdfToWorldXZ(p.srcX, p.srcY, p.group, out);
+          p.position.set(out.x, flatY, out.z);
         }
         return;
       }
       const yAbove = layoutCtx.bbox.max.y + 0.5;
       const fallbackY = layoutCtx.bbox.min.y + (layoutCtx.bbox.max.y - layoutCtx.bbox.min.y) * 0.5;
+      const rayTargets = layoutCtx.rayTargets;
       for (let i = 0; i < pileData.length; i++) {
         const p = pileData[i];
-        const w = pdfToWorldXZ(p.srcX, p.srcY, p.group);
-        _downRay.set(new THREE.Vector3(w.x, yAbove, w.z), _downDir);
-        const hits = _downRay.intersectObjects(layoutCtx.rayTargets, false);
+        pdfToWorldXZ(p.srcX, p.srcY, p.group, out);
+        _rayOrigin.set(out.x, yAbove, out.z);
+        _downRay.set(_rayOrigin, _downDir);
+        const hits = _downRay.intersectObjects(rayTargets, false);
         const y = hits.length ? hits[0].point.y : fallbackY;
-        p.position.set(w.x, y, w.z);
+        p.position.set(out.x, y, out.z);
       }
     }
     // Push the current pileData[].position into the InstancedMesh + stalk geo.
@@ -1120,11 +1153,24 @@
         if (ring && ring.visible) ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
       }
       if (interactive) {
-        // Queue a settle so dots return to true surface Y when interaction stops.
         scheduleSurfaceSettle();
+      } else {
+        // Only sync the slider labels at rest. During an interactive drag we
+        // skip this entirely to avoid 60Hz DOM input writes.
+        updateAlignSliderLabels();
       }
       if (persist) saveTransform();
-      updateAlignSliderLabels();
+    }
+    // rAF-coalesced transform apply: collapses multiple pointer-move /
+    // slider-input ticks per frame into a single GPU upload.
+    let rafPending = false;
+    function scheduleApplyTransformInteractive() {
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => {
+        rafPending = false;
+        applyTransform({ persist: false, interactive: true });
+      });
     }
     function resetTransform() {
       if (editTarget === "ALL") {
@@ -1444,8 +1490,7 @@
         const factor = Math.pow(1.01, dy);
         t.scale = Math.max(0.02, dragState.initial.scale * factor);
       }
-      applyTransform({ persist: false, interactive: true });
-      syncAlignUIFromTransform();
+      scheduleApplyTransformInteractive();
     });
     let suppressClickUntil = 0;
     function endDrag(e) {
@@ -1462,6 +1507,7 @@
       interactive = false;
       recomputePileWorldPositions();
       rebuildPileMeshFromPositions();
+      syncAlignUIFromTransform();
     }
     renderer.domElement.addEventListener("pointerup", endDrag);
     renderer.domElement.addEventListener("pointercancel", endDrag);
@@ -1626,9 +1672,9 @@
       const r = $(rangeId), n = $(numId);
       r.addEventListener("input", () => {
         activeTransform()[key] = parseFloat(r.value) || 0;
-        applyTransform({ persist: false, interactive: true });
+        scheduleApplyTransformInteractive();
       });
-      r.addEventListener("change", () => persistActive());
+      r.addEventListener("change", () => { applyTransform({ persist: false }); persistActive(); });
       n.addEventListener("change", () => {
         const v = parseFloat(n.value);
         if (!Number.isFinite(v)) return;
