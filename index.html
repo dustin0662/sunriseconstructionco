@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <title>Midway — Foundation Pile Viewer</title>
 <style>
@@ -445,6 +445,132 @@
     background: rgba(249,115,22,0.15);
     border: 1px solid rgba(249,115,22,0.4);
   }
+
+  /* ============================ MOBILE ============================ */
+  #mobile-nav { display: none; }
+  #sheet-backdrop { display: none; }
+
+  @media (max-width: 820px), (pointer: coarse) {
+    /* Compact header */
+    #header {
+      top: 0; left: 0; right: 0;
+      border-radius: 0;
+      padding: 8px 12px;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    #header .title { font-size: 14px; }
+    #header .stats { font-size: 11px; }
+    #search { margin-top: 0; font-size: 16px; padding: 9px 12px; } /* 16px avoids iOS zoom */
+
+    /* Hide desktop-only mouse-help + tooltip */
+    #controls { display: none !important; }
+    #tooltip { display: none !important; }
+
+    /* Turn floating panels into bottom sheets */
+    #groups, #align-panel, #info {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      top: auto;
+      width: auto;
+      max-width: none;
+      max-height: 72vh;
+      margin: 0;
+      border-radius: 16px 16px 0 0;
+      border-left: 0; border-right: 0; border-bottom: 0;
+      transform: translateY(110%);
+      transition: transform 0.25s ease;
+      overflow-y: auto;
+      z-index: 60;
+      padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+      -webkit-overflow-scrolling: touch;
+    }
+    #groups.sheet-open, #align-panel.sheet-open, #info.sheet-open {
+      transform: translateY(0);
+    }
+    /* Info sheet shows on selection without needing nav */
+    #info { display: block; }
+    #info:not(.shown) { transform: translateY(110%); }
+    #info.shown { transform: translateY(0); }
+
+    /* Grab handle on each sheet */
+    #groups::before, #align-panel::before, #info::before {
+      content: "";
+      display: block;
+      width: 40px; height: 4px;
+      background: rgba(255,255,255,0.25);
+      border-radius: 2px;
+      margin: 0 auto 10px;
+    }
+
+    /* Share panel: hide the floating one; its actions move into the nav menu */
+    #share-panel {
+      left: 0; right: 0; bottom: 56px;
+      transform: none;
+      border-radius: 0;
+      flex-wrap: wrap;
+      justify-content: center;
+      transform: translateY(110%);
+      transition: transform 0.25s ease;
+      z-index: 60;
+      padding-bottom: 14px;
+    }
+    #share-panel.sheet-open { transform: translateY(0); }
+
+    /* Touch-friendly buttons */
+    .btn { padding: 10px 12px; font-size: 13px; }
+    .target-btn { padding: 8px 12px; font-size: 13px; }
+    .edit-mode-btn { padding: 9px 0; font-size: 13px; }
+    .color-mode-btn { padding: 9px 0; font-size: 12px; }
+    input[type="range"] { height: 28px; }
+    .legend-row, .group-row { padding: 9px 8px; }
+
+    /* Bottom navigation bar */
+    #mobile-nav {
+      display: flex;
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      height: calc(56px + env(safe-area-inset-bottom, 0px));
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      background: rgba(12, 15, 26, 0.96);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      z-index: 70;
+      backdrop-filter: blur(8px);
+    }
+    #mobile-nav button {
+      flex: 1;
+      background: transparent;
+      border: 0;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      cursor: pointer;
+      padding: 6px 2px;
+    }
+    #mobile-nav button.active { color: var(--accent); }
+    #mobile-nav button .ic { font-size: 18px; line-height: 1; }
+    #mobile-nav button:disabled { opacity: 0.3; }
+
+    #sheet-backdrop {
+      display: block;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+      z-index: 55;
+    }
+    #sheet-backdrop.shown { opacity: 1; pointer-events: auto; }
+
+    /* Make the close button bigger for touch */
+    #info .close { width: 34px; height: 34px; font-size: 22px; top: 10px; right: 12px; }
+  }
 </style>
 </head>
 <body>
@@ -585,6 +711,15 @@
     <button class="btn admin-only danger" id="btn-clear-all">Clear all</button>
   </div>
 
+  <div id="sheet-backdrop"></div>
+
+  <nav id="mobile-nav">
+    <button data-sheet="align-panel" class="admin-only mnav-btn"><span class="ic">⛶</span>Align</button>
+    <button data-sheet="groups" class="mnav-btn"><span class="ic">▦</span>Groups</button>
+    <button id="mnav-top" class="mnav-btn"><span class="ic">⊙</span>Top</button>
+    <button data-sheet="share-panel" class="mnav-btn"><span class="ic">⇪</span>Share</button>
+  </nav>
+
   <div id="toast"></div>
 
   <div id="tooltip"></div>
@@ -681,11 +816,19 @@
       });
     }
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
+    // Cap pixel ratio at 1: hi-DPI displays were paying 4x fragment cost
+    // for no real benefit on a sparse-foliage terrain + 2D point markers.
+    renderer.setPixelRatio(1);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.outputEncoding = THREE.sRGBEncoding;
     $("app").appendChild(renderer.domElement);
+
+    // Render-on-demand: avoid the constant 60Hz draw when nothing changes.
+    // The page idles at ~0% CPU/GPU until the user interacts.
+    let renderRequested = true;
+    function requestRender() { renderRequested = true; }
+    window.__requestRender = requestRender;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0a0a14);
@@ -886,63 +1029,68 @@
 
       visibleMask = new Array(pileData.length).fill(true);
 
-      // -- Build InstancedMesh of pile markers
-      // Marker is a small "lollipop": a vertical stalk + a flat disc on top.
-      // We use a low-poly sphere for performance and per-instance colors.
+      // -- Build a fast THREE.Points cloud (one billboard sprite per pile).
+      // Vastly cheaper than 2932 instanced spheres + 2932 line stalks.
       markerRadius = Math.max(0.012, size.x * 0.004);
-      const markerGeo = new THREE.SphereGeometry(markerRadius, 14, 10);
-      const markerMat = new THREE.MeshStandardMaterial({
-        roughness: 0.35,
-        metalness: 0.15,
-        emissive: 0x000000,
-      });
-      pileMesh = new THREE.InstancedMesh(markerGeo, markerMat, pileData.length);
-      pileMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      // Per-instance color
-      pileMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(pileData.length * 3), 3);
-      pileMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
-
-      const dummy = new THREE.Object3D();
-      const tmpColor = new THREE.Color();
-      markerFloatHeight = markerRadius * 1.6; // float just above surface
+      markerFloatHeight = markerRadius * 1.6;
       const floatHeight = markerFloatHeight;
-      for (let i = 0; i < pileData.length; i++) {
-        const p = pileData[i];
-        dummy.position.set(p.position.x, p.position.y + floatHeight, p.position.z);
-        dummy.scale.setScalar(1);
-        dummy.updateMatrix();
-        pileMesh.setMatrixAt(i, dummy.matrix);
-        tmpColor.set(pileColorHex(p));
-        pileMesh.setColorAt(i, tmpColor);
+
+      // Circular sprite (white core, soft halo) generated once on a canvas.
+      const sprCanvas = document.createElement("canvas");
+      sprCanvas.width = sprCanvas.height = 64;
+      {
+        const ctx = sprCanvas.getContext("2d");
+        ctx.clearRect(0, 0, 64, 64);
+        // Outer ring for legibility on light backgrounds
+        ctx.beginPath();
+        ctx.arc(32, 32, 30, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fill();
+        // Inner colored fill
+        ctx.beginPath();
+        ctx.arc(32, 32, 26, 0, Math.PI * 2);
+        ctx.fillStyle = "white";
+        ctx.fill();
       }
-      pileMesh.instanceMatrix.needsUpdate = true;
-      if (pileMesh.instanceColor) pileMesh.instanceColor.needsUpdate = true;
+      const pileSprite = new THREE.CanvasTexture(sprCanvas);
+      pileSprite.minFilter = THREE.LinearFilter;
+      pileSprite.magFilter = THREE.LinearFilter;
+      pileSprite.needsUpdate = true;
+
+      const geo = new THREE.BufferGeometry();
+      const posArr = new Float32Array(pileData.length * 3);
+      const colArr = new Float32Array(pileData.length * 3);
+      geo.setAttribute("position", new THREE.BufferAttribute(posArr, 3));
+      geo.setAttribute("color",    new THREE.BufferAttribute(colArr, 3));
+
+      const pileMat = new THREE.PointsMaterial({
+        size: 14,                 // pixels (sizeAttenuation off = constant screen size)
+        map: pileSprite,
+        vertexColors: true,
+        transparent: true,
+        alphaTest: 0.35,
+        depthWrite: false,
+        sizeAttenuation: false,
+      });
+      pileMesh = new THREE.Points(geo, pileMat);
+      pileMesh.frustumCulled = false;
+      // Initial color buffer fill.
+      {
+        const c = new THREE.Color();
+        for (let i = 0; i < pileData.length; i++) {
+          c.set(pileColorHex(pileData[i]));
+          colArr[i*3+0] = c.r; colArr[i*3+1] = c.g; colArr[i*3+2] = c.b;
+        }
+      }
       scene.add(pileMesh);
 
-      // Add thin "stalks" beneath each pile for a "pegged" look using LineSegments
-      // (sized once; geometry is rewritten on every transform change.)
-      const stalkPos = new Float32Array(pileData.length * 6);
-      const stalkCol = new Float32Array(pileData.length * 6);
-      for (let i = 0; i < pileData.length; i++) {
-        const p = pileData[i];
-        const baseY = p.position.y;
-        const topY = baseY + floatHeight;
-        stalkPos[i*6+0] = p.position.x; stalkPos[i*6+1] = baseY; stalkPos[i*6+2] = p.position.z;
-        stalkPos[i*6+3] = p.position.x; stalkPos[i*6+4] = topY;  stalkPos[i*6+5] = p.position.z;
-        tmpColor.set(pileColorHex(p));
-        stalkCol[i*6+0] = tmpColor.r; stalkCol[i*6+1] = tmpColor.g; stalkCol[i*6+2] = tmpColor.b;
-        stalkCol[i*6+3] = tmpColor.r; stalkCol[i*6+4] = tmpColor.g; stalkCol[i*6+5] = tmpColor.b;
-      }
-      const stalkGeo = new THREE.BufferGeometry();
-      stalkGeo.setAttribute("position", new THREE.BufferAttribute(stalkPos, 3));
-      stalkGeo.setAttribute("color", new THREE.BufferAttribute(stalkCol, 3));
-      const stalkMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 });
-      const stalks = new THREE.LineSegments(stalkGeo, stalkMat);
-      scene.add(stalks);
-      pileStalks = stalks;
-      pileMesh.userData.stalks = stalks;
-      // Now that mesh+stalks exist, push the initial transform-driven positions.
+      // Stalks are no longer rendered: 2D points sit on top of the surface
+      // naturally. (`pileStalks` stays null; rebuild functions handle it.)
+      pileStalks = null;
       rebuildPileMeshFromPositions();
+
+      // Raycaster tolerance for Points (world-space).
+      raycaster.params.Points = { threshold: markerRadius * 1.4 };
 
       // Highlight ring (used when a pile is selected)
       const ringGeo = new THREE.RingGeometry(markerRadius * 1.4, markerRadius * 2.0, 28);
@@ -986,40 +1134,63 @@
     //   (modelCenterX + tx, modelCenterZ + tz). Y is set by raycasting down.
     const _downRay = new THREE.Raycaster();
     const _downDir = new THREE.Vector3(0, -1, 0);
-    // PDF -> model-centered XZ via global transform only (no per-group).
-    function pdfToGlobalXZ(srcX, srcY) {
-      const ctx = layoutCtx;
-      const gx = transform.geoStretchX || 1;
-      const gz = transform.geoStretchZ || 1;
-      const dx = (srcX - ctx.pdfCenterX) * ctx.baseScale * transform.scale * gx;
-      const dz = -(srcY - ctx.pdfCenterY) * ctx.baseScale * transform.scale * gz;
-      const rad = transform.rotDeg * Math.PI / 180;
-      const c = Math.cos(rad), s = Math.sin(rad);
-      return {
-        x: transform.tx + (dx * c - dz * s),
-        z: transform.tz + (dx * s + dz * c),
-      };
+    // Cached values updated once per recompute pass — Math.cos / Math.sin
+    // are 2-3x more expensive than the multiply-adds in the hot loop, so we
+    // hoist them out and reuse across all 2932 piles.
+    let _gCos = 1, _gSin = 0, _gScaleX = 1, _gScaleZ = 1;
+    let _gTx = 0, _gTz = 0;
+    function refreshGlobalTrigCache() {
+      const rad = (transform.rotDeg || 0) * Math.PI / 180;
+      _gCos = Math.cos(rad); _gSin = Math.sin(rad);
+      const sc = transform.scale || 1;
+      _gScaleX = layoutCtx.baseScale * sc * (transform.geoStretchX || 1);
+      _gScaleZ = -layoutCtx.baseScale * sc * (transform.geoStretchZ || 1);
+      _gTx = transform.tx || 0;
+      _gTz = transform.tz || 0;
     }
-    function pdfToWorldXZ(srcX, srcY, group) {
-      const ctx = layoutCtx;
-      const g = pdfToGlobalXZ(srcX, srcY);
-      let x = g.x, z = g.z;
-      const gt = gtFor(group);
-      if (gt && (gt.tx || gt.tz || gt.rotDeg || gt.scale !== 1)) {
-        // Rotate/scale around the group's GLOBAL-transform centroid.
-        const c = groupCentroidsGlobal[group] || { x: 0, z: 0 };
-        let lx = x - c.x;
-        let lz = z - c.z;
-        const r = gt.rotDeg * Math.PI / 180;
-        const cs = Math.cos(r), sn = Math.sin(r);
-        const rx = lx * cs - lz * sn;
-        const rz = lx * sn + lz * cs;
-        lx = rx * gt.scale;
-        lz = rz * gt.scale;
-        x = lx + c.x + gt.tx;
-        z = lz + c.z + gt.tz;
+    // Output: writes into out.x / out.z. Returns the same object.
+    const _xzOut = { x: 0, z: 0 };
+    function pdfToGlobalXZ(srcX, srcY, out) {
+      const dx = (srcX - layoutCtx.pdfCenterX) * _gScaleX;
+      const dz = (srcY - layoutCtx.pdfCenterY) * _gScaleZ;
+      out.x = _gTx + (dx * _gCos - dz * _gSin);
+      out.z = _gTz + (dx * _gSin + dz * _gCos);
+      return out;
+    }
+    // Per-group trig cache: { [group]: { cos, sin, scale, tx, tz } }
+    let _groupTrig = {};
+    function refreshGroupTrigCache() {
+      _groupTrig = {};
+      for (const g of Object.keys(groupTransforms)) {
+        const gt = groupTransforms[g];
+        if (!gt) continue;
+        const r = (gt.rotDeg || 0) * Math.PI / 180;
+        _groupTrig[g] = {
+          cos: Math.cos(r), sin: Math.sin(r),
+          scale: (gt.scale === undefined ? 1 : gt.scale),
+          tx: gt.tx || 0, tz: gt.tz || 0,
+          active: !!(gt.tx || gt.tz || gt.rotDeg || (gt.scale !== undefined && gt.scale !== 1)),
+        };
       }
-      return { x: ctx.modelCenterX + x, z: ctx.modelCenterZ + z };
+    }
+    function pdfToWorldXZ(srcX, srcY, group, out) {
+      out = out || _xzOut;
+      pdfToGlobalXZ(srcX, srcY, out);
+      const gt = _groupTrig[group];
+      if (gt && gt.active) {
+        const c = groupCentroidsGlobal[group];
+        if (c) {
+          const lx = out.x - c.x;
+          const lz = out.z - c.z;
+          const rx = (lx * gt.cos - lz * gt.sin) * gt.scale;
+          const rz = (lx * gt.sin + lz * gt.cos) * gt.scale;
+          out.x = rx + c.x + gt.tx;
+          out.z = rz + c.z + gt.tz;
+        }
+      }
+      out.x += layoutCtx.modelCenterX;
+      out.z += layoutCtx.modelCenterZ;
+      return out;
     }
     // Group centroids in PDF coords (cached) and in global-transform coords
     // (recomputed on every transform change).
@@ -1039,61 +1210,109 @@
     }
     function recomputeGroupCentroidsGlobal() {
       groupCentroidsGlobal = {};
+      const tmp = { x: 0, z: 0 };
       for (const g of Object.keys(groupCentroidsPDF)) {
         const c = groupCentroidsPDF[g];
-        groupCentroidsGlobal[g] = pdfToGlobalXZ(c.x, c.y);
+        pdfToGlobalXZ(c.x, c.y, tmp);
+        groupCentroidsGlobal[g] = { x: tmp.x, z: tmp.z };
       }
     }
+    // True while the user is mid-drag / dragging a slider. In that state we
+    // skip the per-pile terrain raycast (the dominant cost) and use a flat
+    // mean Y so updates are O(N). When `interactive` flips back to false we
+    // settle every pile back onto the real surface in one pass.
+    let interactive = false;
+    const _rayOrigin = new THREE.Vector3();
     function recomputePileWorldPositions() {
       if (!layoutCtx || !pileData.length) return;
-      // Global-transform centroids must be fresh before pdfToWorldXZ runs
-      // (per-group transforms rotate/scale around them).
+      refreshGlobalTrigCache();
+      refreshGroupTrigCache();
       recomputeGroupCentroidsGlobal();
+      const out = _xzOut;
+      if (interactive) {
+        const flatY = (layoutCtx.bbox.min.y + layoutCtx.bbox.max.y) / 2;
+        for (let i = 0; i < pileData.length; i++) {
+          const p = pileData[i];
+          pdfToWorldXZ(p.srcX, p.srcY, p.group, out);
+          p.position.set(out.x, flatY, out.z);
+        }
+        return;
+      }
       const yAbove = layoutCtx.bbox.max.y + 0.5;
       const fallbackY = layoutCtx.bbox.min.y + (layoutCtx.bbox.max.y - layoutCtx.bbox.min.y) * 0.5;
+      const rayTargets = layoutCtx.rayTargets;
       for (let i = 0; i < pileData.length; i++) {
         const p = pileData[i];
-        const w = pdfToWorldXZ(p.srcX, p.srcY, p.group);
-        _downRay.set(new THREE.Vector3(w.x, yAbove, w.z), _downDir);
-        const hits = _downRay.intersectObjects(layoutCtx.rayTargets, false);
+        pdfToWorldXZ(p.srcX, p.srcY, p.group, out);
+        _rayOrigin.set(out.x, yAbove, out.z);
+        _downRay.set(_rayOrigin, _downDir);
+        const hits = _downRay.intersectObjects(rayTargets, false);
         const y = hits.length ? hits[0].point.y : fallbackY;
-        p.position.set(w.x, y, w.z);
+        p.position.set(out.x, y, out.z);
       }
     }
     // Push the current pileData[].position into the InstancedMesh + stalk geo.
+    // Push pileData positions into the Points geometry buffer.
+    // Hidden piles get y = -1e6 so they're off-screen but the indices stay
+    // stable for raycaster hits / filter toggling.
+    const HIDDEN_Y = -1e6;
     function rebuildPileMeshFromPositions() {
-      if (!pileMesh || !pileStalks) return;
-      const m = new THREE.Matrix4();
-      const sV = new THREE.Vector3(1, 1, 1);
-      const sH = new THREE.Vector3(0.0001, 0.0001, 0.0001);
-      const stalkPos = pileStalks.geometry.attributes.position.array;
+      if (!pileMesh) return;
+      const pos = pileMesh.geometry.attributes.position.array;
       for (let i = 0; i < pileData.length; i++) {
         const p = pileData[i];
         const visible = visibleMask[i] !== false;
-        m.makeTranslation(p.position.x, p.position.y + markerFloatHeight, p.position.z);
-        m.scale(visible ? sV : sH);
-        pileMesh.setMatrixAt(i, m);
-        stalkPos[i*6+0] = p.position.x;
-        stalkPos[i*6+1] = p.position.y;
-        stalkPos[i*6+2] = p.position.z;
-        stalkPos[i*6+3] = p.position.x;
-        stalkPos[i*6+4] = p.position.y + markerFloatHeight;
-        stalkPos[i*6+5] = p.position.z;
+        pos[i*3+0] = p.position.x;
+        pos[i*3+1] = visible ? (p.position.y + markerFloatHeight) : HIDDEN_Y;
+        pos[i*3+2] = p.position.z;
       }
-      pileMesh.instanceMatrix.needsUpdate = true;
-      pileStalks.geometry.attributes.position.needsUpdate = true;
+      pileMesh.geometry.attributes.position.needsUpdate = true;
+      requestRender();
     }
-    function applyTransform({ persist = true } = {}) {
+    // Settle pile Y values onto the real surface after an interactive pass.
+    let settleTimer = null;
+    function scheduleSurfaceSettle() {
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        settleTimer = null;
+        interactive = false;
+        recomputePileWorldPositions();
+        rebuildPileMeshFromPositions();
+        if (selectedIndex >= 0 && selectedIndex < pileData.length) {
+          const p = pileData[selectedIndex];
+          const ring = pileMesh && pileMesh.userData && pileMesh.userData.ring;
+          if (ring && ring.visible) ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
+        }
+      }, 120);
+    }
+    function applyTransform({ persist = true, interactive: int = false } = {}) {
+      interactive = !!int;
       recomputePileWorldPositions();
       rebuildPileMeshFromPositions();
-      // Refresh the highlight ring.
       if (selectedIndex >= 0 && selectedIndex < pileData.length) {
         const p = pileData[selectedIndex];
         const ring = pileMesh && pileMesh.userData && pileMesh.userData.ring;
         if (ring && ring.visible) ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
       }
+      if (interactive) {
+        scheduleSurfaceSettle();
+      } else {
+        // Only sync the slider labels at rest. During an interactive drag we
+        // skip this entirely to avoid 60Hz DOM input writes.
+        updateAlignSliderLabels();
+      }
       if (persist) saveTransform();
-      updateAlignSliderLabels();
+    }
+    // rAF-coalesced transform apply: collapses multiple pointer-move /
+    // slider-input ticks per frame into a single GPU upload.
+    let rafPending = false;
+    function scheduleApplyTransformInteractive() {
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => {
+        rafPending = false;
+        applyTransform({ persist: false, interactive: true });
+      });
     }
     function resetTransform() {
       if (editTarget === "ALL") {
@@ -1159,19 +1378,17 @@
       });
     });
 
-    // Refresh per-instance colors + stalk colors after a colorMode change.
+    // Refresh per-point colors after a colorMode change.
     function recolorPiles() {
-      if (!pileMesh || !pileStalks) return;
+      if (!pileMesh) return;
       const c = new THREE.Color();
-      const stalkCol = pileStalks.geometry.attributes.color.array;
+      const col = pileMesh.geometry.attributes.color.array;
       for (let i = 0; i < pileData.length; i++) {
         c.set(pileColorHex(pileData[i]));
-        pileMesh.setColorAt(i, c);
-        stalkCol[i*6+0] = c.r; stalkCol[i*6+1] = c.g; stalkCol[i*6+2] = c.b;
-        stalkCol[i*6+3] = c.r; stalkCol[i*6+4] = c.g; stalkCol[i*6+5] = c.b;
+        col[i*3+0] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
       }
-      if (pileMesh.instanceColor) pileMesh.instanceColor.needsUpdate = true;
-      pileStalks.geometry.attributes.color.needsUpdate = true;
+      pileMesh.geometry.attributes.color.needsUpdate = true;
+      requestRender();
     }
 
     // Apply lock state to the alignment UI.
@@ -1244,23 +1461,22 @@
       });
     }
 
-    const _matrix = new THREE.Matrix4();
-    const _scaleVisible = new THREE.Vector3(1, 1, 1);
-    const _scaleHidden = new THREE.Vector3(0.0001, 0.0001, 0.0001);
     function applyFilters() {
       if (!pileMesh) return;
+      const pos = pileMesh.geometry.attributes.position.array;
       let visibleCount = 0;
       for (let i = 0; i < pileData.length; i++) {
         const p = pileData[i];
         const isVisible = !colorFilter.has(p.color) && !groupFilter.has(p.group);
         visibleMask[i] = isVisible;
-        _matrix.makeTranslation(p.position.x, p.position.y + markerFloatHeight, p.position.z);
-        _matrix.scale(isVisible ? _scaleVisible : _scaleHidden);
-        pileMesh.setMatrixAt(i, _matrix);
+        pos[i*3+0] = p.position.x;
+        pos[i*3+1] = isVisible ? (p.position.y + markerFloatHeight) : HIDDEN_Y;
+        pos[i*3+2] = p.position.z;
         if (isVisible) visibleCount++;
       }
-      pileMesh.instanceMatrix.needsUpdate = true;
+      pileMesh.geometry.attributes.position.needsUpdate = true;
       $("stats").textContent = `${visibleCount} / ${pileData.length} piles visible`;
+      requestRender();
     }
 
     // ---- Interaction --------------------------------------------------------
@@ -1273,9 +1489,9 @@
       pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
       const hits = raycaster.intersectObject(pileMesh);
-      const hit = hits.find(h => visibleMask[h.instanceId]);
+      const hit = hits.find(h => visibleMask[h.index]);
       if (hit) {
-        const idx = hit.instanceId;
+        const idx = hit.index;
         if (idx !== hoverIndex) {
           hoverIndex = idx;
           renderer.domElement.style.cursor = "pointer";
@@ -1325,12 +1541,18 @@
       $("serial-input").placeholder = p.serial;
 
       $("info").classList.add("shown");
+      // On touch layouts, dim the backdrop behind the info sheet.
+      if (window.matchMedia("(max-width: 820px), (pointer: coarse)").matches) {
+        const bd = $("sheet-backdrop");
+        if (bd) bd.classList.add("shown");
+      }
 
       // Move highlight ring to selected pile
       const ring = pileMesh.userData.ring;
       if (ring) {
         ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
         ring.visible = true;
+        requestRender();
       }
     }
 
@@ -1349,8 +1571,8 @@
       pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
       const hits = raycaster.intersectObject(pileMesh);
-      const hit = hits.find(h => visibleMask[h.instanceId]);
-      if (hit) selectPile(hit.instanceId);
+      const hit = hits.find(h => visibleMask[h.index]);
+      if (hit) selectPile(hit.index);
     });
 
     // Escape exits anchor mode + drag mode.
@@ -1418,8 +1640,7 @@
         const factor = Math.pow(1.01, dy);
         t.scale = Math.max(0.02, dragState.initial.scale * factor);
       }
-      applyTransform({ persist: false });
-      syncAlignUIFromTransform();
+      scheduleApplyTransformInteractive();
     });
     let suppressClickUntil = 0;
     function endDrag(e) {
@@ -1432,13 +1653,18 @@
       if (moved) suppressClickUntil = performance.now() + 300;
       dragState = null;
       controls.enabled = true;
+      // Settle every pile back onto the real surface now that the drag ended.
+      interactive = false;
+      recomputePileWorldPositions();
+      rebuildPileMeshFromPositions();
+      syncAlignUIFromTransform();
     }
     renderer.domElement.addEventListener("pointerup", endDrag);
     renderer.domElement.addEventListener("pointercancel", endDrag);
 
     $("info-close").addEventListener("click", () => {
       $("info").classList.remove("shown");
-      if (pileMesh && pileMesh.userData.ring) pileMesh.userData.ring.visible = false;
+      if (pileMesh && pileMesh.userData.ring) { pileMesh.userData.ring.visible = false; requestRender(); }
       selectedIndex = -1;
     });
 
@@ -1596,9 +1822,9 @@
       const r = $(rangeId), n = $(numId);
       r.addEventListener("input", () => {
         activeTransform()[key] = parseFloat(r.value) || 0;
-        applyTransform({ persist: false });
+        scheduleApplyTransformInteractive();
       });
-      r.addEventListener("change", () => persistActive());
+      r.addEventListener("change", () => { applyTransform({ persist: false }); persistActive(); });
       n.addEventListener("change", () => {
         const v = parseFloat(n.value);
         if (!Number.isFinite(v)) return;
@@ -1755,6 +1981,7 @@
         cadOverlayGroup.visible = !cadOverlayGroup.visible;
         $("btn-toggle-overlay").textContent = cadOverlayGroup.visible ? "Hide CAD overlay" : "Show CAD overlay";
         toast(cadOverlayGroup.visible ? "CAD overlay shown" : "CAD overlay hidden");
+        requestRender();
         return;
       }
       cadOverlayGroup = new THREE.Group();
@@ -1780,6 +2007,7 @@
           const mesh = new THREE.Mesh(geo, mat);
           mesh.position.set(x0 + w/2, yPlace, z0 + d/2);
           cadOverlayGroup.add(mesh);
+          requestRender();
         });
       });
       scene.add(cadOverlayGroup);
@@ -1909,9 +2137,9 @@
       // Step 0 & 2: pick a pile
       if (anchor.step === 0 || anchor.step === 2) {
         const hits = raycaster.intersectObject(pileMesh);
-        const hit = hits.find(h => visibleMask[h.instanceId]);
+        const hit = hits.find(h => visibleMask[h.index]);
         if (!hit) { toast("Click directly on a white pile dot"); return true; }
-        const p = pileData[hit.instanceId];
+        const p = pileData[hit.index];
         if (anchor.step === 0) anchor.A = { pilePdfX: p.srcX, pilePdfY: p.srcY };
         else anchor.B = { pilePdfX: p.srcX, pilePdfY: p.srcY };
         anchor.step++;
@@ -2002,15 +2230,65 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
+    // OrbitControls fires 'change' on every camera update (including damping
+    // settling frames). That's our signal to schedule a render.
+    controls.addEventListener("change", requestRender);
+
+    // ---- Mobile bottom-sheet navigation ------------------------------------
+    const backdrop = $("sheet-backdrop");
+    const sheetIds = ["align-panel", "groups", "share-panel", "info"];
+    function openSheet(id) {
+      sheetIds.forEach(s => {
+        const el = $(s);
+        if (!el) return;
+        if (s === id) el.classList.add("sheet-open");
+        else el.classList.remove("sheet-open");
+      });
+      // Info uses its own .shown class for visibility; treat similarly.
+      if (id === "info") $("info").classList.add("shown");
+      backdrop.classList.add("shown");
+      syncMobileNavActive(id);
+    }
+    function closeSheets() {
+      sheetIds.forEach(s => { const el = $(s); if (el) el.classList.remove("sheet-open"); });
+      backdrop.classList.remove("shown");
+      syncMobileNavActive(null);
+    }
+    function syncMobileNavActive(id) {
+      document.querySelectorAll("#mobile-nav .mnav-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.sheet === id);
+      });
+    }
+    document.querySelectorAll("#mobile-nav .mnav-btn[data-sheet]").forEach(b => {
+      b.addEventListener("click", () => {
+        const id = b.dataset.sheet;
+        const el = $(id);
+        const isOpen = el && el.classList.contains("sheet-open");
+        if (isOpen) closeSheets();
+        else openSheet(id);
+      });
+    });
+    $("mnav-top").addEventListener("click", () => { closeSheets(); $("btn-view-top").click(); });
+    backdrop.addEventListener("click", closeSheets);
+    // Closing the info panel via its × should also clear the backdrop on mobile.
+    $("info-close").addEventListener("click", closeSheets);
+    window.addEventListener("resize", requestRender);
+
     function animate() {
       requestAnimationFrame(animate);
-      // Pulse the ring on the selected pile
+      // Damping needs update() each frame WHILE settling so it can emit more
+      // change events. Cheap when idle.
+      controls.update();
+      // Pulse the highlight ring while it's visible — needs render each frame.
       if (pileMesh && pileMesh.userData.ring && pileMesh.userData.ring.visible) {
         const s = 1 + Math.sin(performance.now() * 0.006) * 0.12;
         pileMesh.userData.ring.scale.set(s, 1, s);
+        requestRender();
       }
-      controls.update();
-      renderer.render(scene, camera);
+      if (renderRequested) {
+        renderRequested = false;
+        renderer.render(scene, camera);
+      }
     }
     animate();
   </script>
