@@ -1,0 +1,1749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<title>Midway — Foundation Pile Viewer</title>
+<style>
+  :root {
+    --bg: #0a0a14;
+    --panel: rgba(18, 22, 36, 0.92);
+    --panel-border: rgba(255,255,255,0.08);
+    --fg: #e8eaf0;
+    --muted: #9aa1b2;
+    --accent: #f97316;
+  }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  .panel {
+    position: absolute;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  }
+  #header {
+    top: 12px; left: 12px; right: 12px;
+    padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+  }
+  #header .title { font-weight: 600; letter-spacing: 0.02em; }
+  #header .stats { color: var(--muted); font-size: 12px; }
+
+  #legend {
+    top: 70px; left: 12px;
+    width: 280px;
+    max-height: calc(100% - 100px);
+    padding: 12px 14px;
+    overflow-y: auto;
+    font-size: 12px;
+  }
+  #legend h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+  .legend-row {
+    display: grid;
+    grid-template-columns: 18px 1fr 36px 28px;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .legend-row:hover { background: rgba(255,255,255,0.05); }
+  .legend-row.off { opacity: 0.4; }
+  .legend-row .swatch {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.25);
+  }
+  .legend-row .name { font-weight: 500; }
+  .legend-row .type { color: var(--muted); font-size: 11px; }
+  .legend-row .count { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  #groups {
+    top: 70px; right: 12px;
+    width: 180px;
+    padding: 12px 14px;
+    font-size: 12px;
+  }
+  #groups h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+  .group-row {
+    display: grid;
+    grid-template-columns: 14px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .group-row:hover { background: rgba(255,255,255,0.05); }
+  .group-row.off { opacity: 0.4; }
+  .group-row .group-swatch {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.25);
+  }
+  .group-row .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  #info {
+    bottom: 12px; right: 12px;
+    width: 280px;
+    padding: 14px;
+    font-size: 12.5px;
+    display: none;
+  }
+  #info.shown { display: block; }
+  #info .serial { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; }
+  #info .row {
+    display: flex; justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  #info .row:last-child { border-bottom: 0; }
+  #info .row .k { color: var(--muted); }
+  #info .row .v { font-variant-numeric: tabular-nums; }
+  #info .head {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px;
+  }
+  #info .swatch {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.25);
+    flex-shrink: 0;
+  }
+  #info .close {
+    position: absolute; top: 8px; right: 10px;
+    width: 22px; height: 22px;
+    background: transparent; color: var(--muted);
+    border: 0; cursor: pointer; font-size: 16px;
+    line-height: 1;
+  }
+
+  #controls {
+    bottom: 12px; left: 12px;
+    padding: 10px 12px;
+    font-size: 12px;
+    display: flex; flex-direction: column; gap: 6px;
+    color: var(--muted);
+  }
+  #controls .key { display: inline-block; min-width: 56px; color: var(--fg); }
+
+  #loading {
+    position: absolute;
+    inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg);
+    z-index: 50;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  #loading.hidden { display: none; }
+
+  #search {
+    margin-top: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.05);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    font-size: 12px;
+    box-sizing: border-box;
+  }
+  #search:focus { outline: none; border-color: var(--accent); }
+
+  #tooltip {
+    position: absolute;
+    pointer-events: none;
+    padding: 4px 8px;
+    background: rgba(0,0,0,0.85);
+    color: #fff;
+    font-size: 11px;
+    border-radius: 4px;
+    transform: translate(-50%, calc(-100% - 12px));
+    white-space: nowrap;
+    display: none;
+    z-index: 30;
+  }
+
+  /* Admin / info panel additions */
+  body.readonly .admin-only { display: none !important; }
+
+  #mode-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    margin-left: 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: rgba(249,115,22,0.2);
+    color: #f97316;
+    border: 1px solid rgba(249,115,22,0.4);
+  }
+  body.readonly #mode-badge {
+    background: rgba(34,197,94,0.18);
+    color: #4ade80;
+    border-color: rgba(34,197,94,0.4);
+  }
+
+  #toolbar {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .btn {
+    background: rgba(255,255,255,0.06);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    line-height: 1.2;
+    font-family: inherit;
+  }
+  .btn:hover { background: rgba(255,255,255,0.1); }
+  .btn.primary {
+    background: rgba(249,115,22,0.25);
+    border-color: rgba(249,115,22,0.5);
+    color: #ffe7d4;
+  }
+  .btn.primary:hover { background: rgba(249,115,22,0.4); }
+  .btn.danger {
+    background: rgba(220,38,38,0.18);
+    border-color: rgba(220,38,38,0.4);
+    color: #fca5a5;
+  }
+  .btn.danger:hover { background: rgba(220,38,38,0.3); }
+
+  #info {
+    max-height: calc(100% - 24px);
+    overflow-y: auto;
+  }
+  #info .edit-row {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  #info .edit-row label {
+    color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  #info .edit-row input[type="text"] {
+    background: rgba(255,255,255,0.05);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 12.5px;
+    font-family: inherit;
+  }
+  #info .edit-row input[type="text"]:focus {
+    outline: none; border-color: var(--accent);
+  }
+  #info .photo-wrap {
+    margin-top: 10px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.3);
+    aspect-ratio: 4/3;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  #info .photo-wrap img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  #info .photo-wrap .placeholder {
+    color: var(--muted); font-size: 11px;
+  }
+  #info .photo-actions {
+    display: flex; gap: 6px; margin-top: 8px;
+  }
+  #info .button-row {
+    display: flex; gap: 6px; margin-top: 12px;
+  }
+  #info .button-row .btn { flex: 1; }
+
+  #share-panel {
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 12px;
+    font-size: 12px;
+    display: flex; gap: 6px; align-items: center;
+  }
+  #share-panel .count {
+    color: var(--muted);
+    margin-right: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #toast {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 14px;
+    background: rgba(20,24,38,0.95);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    color: var(--fg);
+    font-size: 12.5px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 100;
+  }
+  #toast.shown { opacity: 1; }
+
+  #align-panel {
+    top: 70px;
+    right: 210px;
+    width: 260px;
+    padding: 12px 14px;
+    font-size: 12px;
+  }
+  #align-panel h3 {
+    margin: 0 0 8px;
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600;
+  }
+  .align-row {
+    display: grid;
+    grid-template-columns: 64px 1fr 56px;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .align-row label { color: var(--muted); font-size: 11px; }
+  .align-row input[type="range"] {
+    accent-color: var(--accent);
+    width: 100%;
+  }
+  .align-row input[type="number"] {
+    background: rgba(255,255,255,0.05);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 3px 5px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    font-family: inherit;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .align-buttons {
+    display: flex; gap: 6px;
+    margin-top: 8px;
+  }
+  .align-buttons .btn { flex: 1; }
+  .anchor-status {
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 5px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .anchor-status.active {
+    background: rgba(249,115,22,0.15);
+    color: #ffd9b4;
+    border: 1px solid rgba(249,115,22,0.4);
+  }
+
+  body.anchor-pick-pile #app canvas { cursor: crosshair !important; }
+  body.anchor-pick-target #app canvas { cursor: cell !important; }
+
+  body.layout-locked #align-panel input[type="range"],
+  body.layout-locked #align-panel input[type="number"],
+  body.layout-locked #align-panel .btn:not(#btn-lock):not(#btn-toggle-overlay):not(#btn-view-top):not(#btn-view-iso):not(.color-mode-btn) {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  #btn-lock {
+    width: 100%;
+    background: rgba(34,197,94,0.16);
+    border-color: rgba(34,197,94,0.45);
+    color: #bbf7d0;
+  }
+  body.layout-locked #btn-lock {
+    background: rgba(220,38,38,0.16);
+    border-color: rgba(220,38,38,0.45);
+    color: #fca5a5;
+  }
+
+  .color-mode-row {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.07);
+  }
+  .color-mode-row .color-mode-label {
+    color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-right: 2px;
+  }
+  .color-mode-btn { flex: 1; padding: 5px 0; font-size: 11px; }
+  .color-mode-btn.active {
+    background: rgba(249,115,22,0.22);
+    border-color: rgba(249,115,22,0.5);
+    color: #ffd9b4;
+  }
+
+  .has-photo-indicator {
+    color: #f97316;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(249,115,22,0.15);
+    border: 1px solid rgba(249,115,22,0.4);
+  }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="loading">Loading model and pile data…</div>
+
+  <div id="header" class="panel">
+    <div>
+      <div class="title">
+        Midway — TT24-10195 Foundation Layout
+        <span id="mode-badge">Admin</span>
+      </div>
+      <div class="stats" id="stats"></div>
+    </div>
+    <div>
+      <input id="search" type="search" placeholder="Search serial (e.g. P-0123)" autocomplete="off" />
+    </div>
+  </div>
+
+  <div id="legend" class="panel">
+    <h3>Post Type Legend</h3>
+    <div id="legend-rows"></div>
+  </div>
+
+  <div id="groups" class="panel">
+    <h3>Groups</h3>
+    <div id="group-rows"></div>
+  </div>
+
+  <div id="align-panel" class="panel admin-only">
+    <h3>Alignment</h3>
+    <div class="align-row">
+      <label>Translate X</label>
+      <input type="range" id="align-tx" min="-5" max="5" step="0.005" value="0" />
+      <input type="number" id="align-tx-num" step="0.01" value="0" />
+    </div>
+    <div class="align-row">
+      <label>Translate Z</label>
+      <input type="range" id="align-tz" min="-5" max="5" step="0.005" value="0" />
+      <input type="number" id="align-tz-num" step="0.01" value="0" />
+    </div>
+    <div class="align-row">
+      <label>Rotate °</label>
+      <input type="range" id="align-rot" min="-180" max="180" step="0.5" value="0" />
+      <input type="number" id="align-rot-num" step="0.5" value="0" />
+    </div>
+    <div class="align-row">
+      <label>Scale</label>
+      <input type="range" id="align-scale" min="0.3" max="2" step="0.005" value="1" />
+      <input type="number" id="align-scale-num" step="0.01" value="1" />
+    </div>
+    <div class="align-buttons">
+      <button class="btn" id="btn-lock">🔒 Unlock layout</button>
+    </div>
+    <div class="align-buttons">
+      <button class="btn primary" id="btn-anchor">2-pt anchor</button>
+      <button class="btn" id="btn-align-reset">Reset</button>
+    </div>
+    <div class="align-buttons">
+      <button class="btn" id="btn-flip-x">Flip X</button>
+      <button class="btn" id="btn-flip-z">Flip Z</button>
+    </div>
+    <div class="align-buttons">
+      <button class="btn" id="btn-kmz-align">Use KMZ georef</button>
+      <button class="btn" id="btn-toggle-overlay">Show CAD overlay</button>
+    </div>
+    <div class="align-buttons">
+      <button class="btn" id="btn-view-top">Top view</button>
+      <button class="btn" id="btn-view-iso">Iso view</button>
+    </div>
+    <div class="color-mode-row">
+      <span class="color-mode-label">Color by</span>
+      <button class="btn color-mode-btn" data-mode="group">Group</button>
+      <button class="btn color-mode-btn" data-mode="postType">Post type</button>
+      <button class="btn color-mode-btn" data-mode="white">White</button>
+    </div>
+    <div id="anchor-status" class="anchor-status">Tip: drag sliders, or use 2-pt anchor to align by clicking two reference points.</div>
+  </div>
+
+  <div id="controls" class="panel">
+    <div><span class="key">Drag</span> Rotate</div>
+    <div><span class="key">Right-drag</span> Pan</div>
+    <div><span class="key">Scroll</span> Zoom</div>
+    <div><span class="key">Click</span> Pile details</div>
+  </div>
+
+  <div id="info" class="panel">
+    <button class="close" id="info-close" aria-label="Close">×</button>
+    <div class="head">
+      <div class="swatch" id="info-swatch"></div>
+      <div>
+        <div class="serial" id="info-serial">P-0000</div>
+        <div id="info-photo-tag" style="display:none; margin-top: 4px;"><span class="has-photo-indicator">PHOTO</span></div>
+      </div>
+    </div>
+
+    <div class="photo-wrap" id="info-photo-wrap">
+      <div class="placeholder">No photo</div>
+    </div>
+    <div class="photo-actions admin-only">
+      <input type="file" id="photo-input" accept="image/*" style="display:none" />
+      <button class="btn" id="photo-upload-btn">Upload photo</button>
+      <button class="btn danger" id="photo-clear-btn">Clear</button>
+    </div>
+
+    <div class="edit-row admin-only">
+      <label for="serial-input">Serial number</label>
+      <input type="text" id="serial-input" placeholder="P-0001" maxlength="64" />
+    </div>
+
+    <div class="row"><span class="k">Group</span><span class="v" id="info-group">—</span></div>
+    <div class="row"><span class="k">Post Type</span><span class="v" id="info-type">—</span></div>
+    <div class="row"><span class="k">Shape</span><span class="v" id="info-shape">—</span></div>
+    <div class="row"><span class="k">Embedment</span><span class="v" id="info-embed">—</span></div>
+    <div class="row"><span class="k">Length</span><span class="v" id="info-length">—</span></div>
+    <div class="row"><span class="k">Color</span><span class="v" id="info-color">—</span></div>
+    <div class="row"><span class="k">Surface elev.</span><span class="v" id="info-y">—</span></div>
+    <div class="row"><span class="k">Pile ID</span><span class="v" id="info-pid" style="font-size:10.5px; color: var(--muted)">—</span></div>
+
+    <div class="button-row admin-only">
+      <button class="btn primary" id="info-save">Save</button>
+      <button class="btn danger" id="info-reset">Reset</button>
+    </div>
+  </div>
+
+  <div id="share-panel" class="panel">
+    <span class="count" id="assign-count">0 assigned</span>
+    <button class="btn" id="btn-copy-link">Copy read-only link</button>
+    <button class="btn admin-only" id="btn-export">Export JSON</button>
+    <button class="btn admin-only" id="btn-import">Import JSON</button>
+    <input type="file" id="import-input" accept="application/json" style="display:none" />
+    <button class="btn admin-only" id="btn-export-align">Export alignment</button>
+    <button class="btn admin-only danger" id="btn-clear-all">Clear all</button>
+  </div>
+
+  <div id="toast"></div>
+
+  <div id="tooltip"></div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./assets/three.module-C7ia6f3T.js",
+      "three/addons/loaders/GLTFLoader.js": "./assets/GLTFLoader-CGtRWvqK.js",
+      "three/addons/controls/OrbitControls.js": "./assets/OrbitControls-Bk8Ii4mF.js"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const $ = (id) => document.getElementById(id);
+
+    // ---- Mode + assignment storage -----------------------------------------
+    const urlParams = new URLSearchParams(window.location.search);
+    const READONLY = urlParams.get("view") === "readonly";
+    if (READONLY) {
+      document.body.classList.add("readonly");
+      $("mode-badge").textContent = "Read-only";
+    }
+
+    const STORAGE_KEY = "midway_pile_assignments_v1";
+    // assignments: { [pileId]: { serial?: string, photo?: dataURL, updatedAt: number } }
+    let assignments = {};
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) assignments = JSON.parse(raw) || {};
+    } catch (_) { assignments = {}; }
+
+    function saveAssignments() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(assignments));
+      } catch (err) {
+        toast("Storage full. Export and clear to free space.", 4000);
+        console.error(err);
+      }
+    }
+
+    function assignedCount() {
+      return Object.keys(assignments).filter(k => {
+        const a = assignments[k];
+        return a && (a.photo || a.serial);
+      }).length;
+    }
+    function updateAssignedCount() {
+      $("assign-count").textContent = assignedCount() + " assigned";
+    }
+
+    function displaySerial(p) {
+      const a = assignments[p.pileId];
+      return (a && a.serial) ? a.serial : p.serial;
+    }
+    function hasPhoto(p) {
+      const a = assignments[p.pileId];
+      return !!(a && a.photo);
+    }
+
+    function toast(msg, ms = 2200) {
+      const t = $("toast");
+      t.textContent = msg;
+      t.classList.add("shown");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => t.classList.remove("shown"), ms);
+    }
+
+    // Resize a File to a JPEG data URL, max 800px on long edge.
+    function fileToResizedDataURL(file, maxEdge = 800, quality = 0.78) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
+          const w = Math.round(img.naturalWidth * scale);
+          const h = Math.round(img.naturalHeight * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          try {
+            resolve(canvas.toDataURL("image/jpeg", quality));
+          } catch (e) { reject(e); }
+        };
+        img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+        img.src = url;
+      });
+    }
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    $("app").appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a14);
+    scene.fog = new THREE.Fog(0x0a0a14, 8, 40);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.05, 200);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 0.4;
+    controls.maxDistance = 25;
+    controls.maxPolarAngle = Math.PI * 0.499;
+    window.__camera = camera;
+    window.__controls = controls;
+
+    // Lighting tuned to show a natural-looking terrain.
+    scene.add(new THREE.HemisphereLight(0xc6d3ff, 0x1a1a25, 0.7));
+    const sun = new THREE.DirectionalLight(0xfff4e6, 1.1);
+    sun.position.set(8, 14, 6);
+    scene.add(sun);
+    const fill = new THREE.DirectionalLight(0xb6c8ff, 0.35);
+    fill.position.set(-6, 6, -4);
+    scene.add(fill);
+
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    let terrain = null;
+    let pileMesh = null;        // InstancedMesh of all pile spheres
+    let pileStalks = null;      // LineSegments for vertical stalks
+    let pileData = [];          // [{serial, group, color, hex, postType, ..., position}]
+    let visibleMask = [];       // bool per pile (toggled by legend/group filters)
+    let markerFloatHeight = 0;  // y-offset from surface to sphere center
+    let markerRadius = 0;
+    const colorFilter = new Set();   // colors hidden
+    const groupFilter = new Set();   // groups hidden
+
+    // Layout transform (PDF coords -> world XZ). baseScale is the auto-fit
+    // scale; the editable transform layers tx/tz/rotDeg/scale on top of that.
+    const TRANSFORM_KEY = "midway_pile_transform_v1";
+    let transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
+    let layoutCtx = null;
+    // Group colors — N7-A blue and N8 green per spec, others distinct.
+    const GROUP_COLORS = {
+      'N1':   '#f87171',
+      'N2':   '#fb923c',
+      'N3':   '#facc15',
+      'N4':   '#38bdf8',
+      'N5':   '#a78bfa',
+      'N6':   '#f472b6',
+      'N7-A': '#3b82f6',
+      'N7-B': '#06b6d4',
+      'N8':   '#22c55e',
+      'N9':   '#d946ef',
+    };
+    // Color mode: 'group' (default), 'postType', or 'white'.
+    const COLOR_MODE_KEY = "midway_pile_color_mode_v1";
+    let colorMode = localStorage.getItem(COLOR_MODE_KEY) || "group";
+    // Layout lock: when locked, sliders/buttons that change alignment are disabled.
+    const LOCK_KEY = "midway_pile_layout_locked_v1";
+    let layoutLocked = (localStorage.getItem(LOCK_KEY) ?? "1") === "1";
+    function pileColorHex(p) {
+      if (colorMode === "white") return "#ffffff";
+      if (colorMode === "postType") return p.hex || "#888888";
+      return GROUP_COLORS[p.group] || "#ffffff";
+    } // { baseScale, pdfCenterX, pdfCenterY, modelCenterX, modelCenterZ, bbox, rayTargets }
+    try {
+      const raw = localStorage.getItem(TRANSFORM_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") transform = { ...transform, ...parsed };
+      }
+    } catch (_) {}
+    function saveTransform() {
+      try { localStorage.setItem(TRANSFORM_KEY, JSON.stringify(transform)); }
+      catch (e) { console.error(e); }
+    }
+
+    // ---- Load ---------------------------------------------------------------
+    const loader = new GLTFLoader();
+    Promise.all([
+      new Promise((res, rej) => loader.load("models/midway.glb", res, undefined, rej)),
+      fetch("data/piles.json").then(r => {
+        if (!r.ok) throw new Error("Failed to load piles.json (HTTP " + r.status + ")");
+        return r.json();
+      }),
+      // Optional committed assignments. Missing file is fine.
+      fetch("data/pile_assignments.json").then(r => r.ok ? r.json() : null).catch(() => null),
+      // Optional committed alignment transform. Missing file is fine.
+      fetch("data/pile_transform.json").then(r => r.ok ? r.json() : null).catch(() => null),
+      // Optional KMZ georeference (lat/lon overlays + borings).
+      fetch("data/kmz_reference.json").then(r => r.ok ? r.json() : null).catch(() => null),
+    ])
+    .then(([gltf, data, committed, committedTransform, kmz]) => {
+      window.__kmz = kmz;
+      // Merge committed -> localStorage takes precedence so admin edits "win" locally.
+      if (committed && typeof committed === "object" && committed.assignments) {
+        for (const [k, v] of Object.entries(committed.assignments)) {
+          if (!assignments[k]) assignments[k] = v;
+        }
+      }
+      // Committed transform applies only when the user hasn't customized locally.
+      if (committedTransform && typeof committedTransform === "object") {
+        const hasLocal = localStorage.getItem(TRANSFORM_KEY);
+        if (!hasLocal) transform = { ...transform, ...committedTransform };
+      }
+      updateAssignedCount();
+      window.__pdfBounds = data.meta.pdfBounds;
+      // -- Add model to scene
+      const root = gltf.scene;
+      // Apply a subtle material tweak so the surface reads as a topography
+      root.traverse((obj) => {
+        if (obj.isMesh) {
+          obj.castShadow = false;
+          obj.receiveShadow = false;
+          // Soften any flat materials
+          if (obj.material) {
+            obj.material.metalness = 0;
+            if (obj.material.roughness !== undefined) obj.material.roughness = 0.95;
+            obj.material.side = THREE.DoubleSide;
+            obj.material.needsUpdate = true;
+          }
+          terrain = obj; // grab any mesh for raycasting; if multiple, we'll union below
+        }
+      });
+      scene.add(root);
+
+      // Compute bounding box of the model in world space
+      const bbox = new THREE.Box3().setFromObject(root);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      bbox.getSize(size);
+      bbox.getCenter(center);
+
+      // Frame the camera
+      const radius = Math.max(size.x, size.z) * 1.0;
+      camera.position.set(center.x + radius * 0.9, center.y + size.y + radius * 0.8, center.z + radius * 0.9);
+      controls.target.set(center.x, center.y + size.y * 0.3, center.z);
+      controls.update();
+
+      // -- Compute the base auto-fit (PDF -> model XZ, preserving aspect)
+      const pdf = data.meta.pdfBounds;
+      const pdfW = pdf.maxX - pdf.minX;
+      const pdfH = pdf.maxY - pdf.minY;
+      const useW = size.x * 0.92;
+      const useH = size.z * 0.92;
+      const baseScale = Math.min(useW / pdfW, useH / pdfH);
+
+      const rayTargets = [];
+      root.traverse((o) => { if (o.isMesh) rayTargets.push(o); });
+
+      layoutCtx = {
+        baseScale,
+        pdfCenterX: (pdf.minX + pdf.maxX) / 2,
+        pdfCenterY: (pdf.minY + pdf.maxY) / 2,
+        modelCenterX: center.x,
+        modelCenterZ: center.z,
+        bbox,
+        rayTargets,
+      };
+
+      // Seed records once; positions get filled in by recomputePileWorldPositions().
+      pileData = data.piles.map((p) => ({
+        ...p,
+        pileId: p.serial,   // stable id keyed off the auto-assigned serial; survives serial overrides
+        position: new THREE.Vector3(0, 0, 0),
+        srcX: p.cx,         // raw PDF coords kept for transform math
+        srcY: p.cy,
+      }));
+      recomputePileWorldPositions();
+
+      visibleMask = new Array(pileData.length).fill(true);
+
+      // -- Build InstancedMesh of pile markers
+      // Marker is a small "lollipop": a vertical stalk + a flat disc on top.
+      // We use a low-poly sphere for performance and per-instance colors.
+      markerRadius = Math.max(0.012, size.x * 0.004);
+      const markerGeo = new THREE.SphereGeometry(markerRadius, 14, 10);
+      const markerMat = new THREE.MeshStandardMaterial({
+        roughness: 0.35,
+        metalness: 0.15,
+        emissive: 0x000000,
+      });
+      pileMesh = new THREE.InstancedMesh(markerGeo, markerMat, pileData.length);
+      pileMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      // Per-instance color
+      pileMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(pileData.length * 3), 3);
+      pileMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+
+      const dummy = new THREE.Object3D();
+      const tmpColor = new THREE.Color();
+      markerFloatHeight = markerRadius * 1.6; // float just above surface
+      const floatHeight = markerFloatHeight;
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        dummy.position.set(p.position.x, p.position.y + floatHeight, p.position.z);
+        dummy.scale.setScalar(1);
+        dummy.updateMatrix();
+        pileMesh.setMatrixAt(i, dummy.matrix);
+        tmpColor.set(pileColorHex(p));
+        pileMesh.setColorAt(i, tmpColor);
+      }
+      pileMesh.instanceMatrix.needsUpdate = true;
+      if (pileMesh.instanceColor) pileMesh.instanceColor.needsUpdate = true;
+      scene.add(pileMesh);
+
+      // Add thin "stalks" beneath each pile for a "pegged" look using LineSegments
+      // (sized once; geometry is rewritten on every transform change.)
+      const stalkPos = new Float32Array(pileData.length * 6);
+      const stalkCol = new Float32Array(pileData.length * 6);
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        const baseY = p.position.y;
+        const topY = baseY + floatHeight;
+        stalkPos[i*6+0] = p.position.x; stalkPos[i*6+1] = baseY; stalkPos[i*6+2] = p.position.z;
+        stalkPos[i*6+3] = p.position.x; stalkPos[i*6+4] = topY;  stalkPos[i*6+5] = p.position.z;
+        tmpColor.set(pileColorHex(p));
+        stalkCol[i*6+0] = tmpColor.r; stalkCol[i*6+1] = tmpColor.g; stalkCol[i*6+2] = tmpColor.b;
+        stalkCol[i*6+3] = tmpColor.r; stalkCol[i*6+4] = tmpColor.g; stalkCol[i*6+5] = tmpColor.b;
+      }
+      const stalkGeo = new THREE.BufferGeometry();
+      stalkGeo.setAttribute("position", new THREE.BufferAttribute(stalkPos, 3));
+      stalkGeo.setAttribute("color", new THREE.BufferAttribute(stalkCol, 3));
+      const stalkMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.7 });
+      const stalks = new THREE.LineSegments(stalkGeo, stalkMat);
+      scene.add(stalks);
+      pileStalks = stalks;
+      pileMesh.userData.stalks = stalks;
+      // Now that mesh+stalks exist, push the initial transform-driven positions.
+      rebuildPileMeshFromPositions();
+
+      // Highlight ring (used when a pile is selected)
+      const ringGeo = new THREE.RingGeometry(markerRadius * 1.4, markerRadius * 2.0, 28);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.visible = false;
+      scene.add(ring);
+      pileMesh.userData.ring = ring;
+
+      // -- UI panels
+      buildLegendUI(data.meta);
+      buildGroupUI(data.meta);
+      syncAlignUIFromTransform();
+      // Color-mode + lock UI state on load
+      document.querySelectorAll(".color-mode-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.mode === colorMode);
+      });
+      applyLockState();
+      // If a non-default transform was loaded, apply it now.
+      if (transform.tx || transform.tz || transform.rotDeg || transform.scale !== 1) {
+        applyTransform({ persist: false });
+      }
+      $("stats").textContent = `${pileData.length} piles · ${Object.keys(data.meta.groupCounts).length} groups`;
+
+      $("loading").classList.add("hidden");
+    })
+    .catch((err) => {
+      console.error(err);
+      $("loading").textContent = "Failed to load: " + (err.message || err);
+    });
+
+    // Selected pile index (hoisted so applyTransform can refresh it).
+    let selectedIndex = -1;
+
+    // ---- Layout transform --------------------------------------------------
+    // Maps PDF (srcX, srcY) -> world (X, Z) via the current `transform`.
+    //   srcX, srcY are raw PDF page coordinates (y down).
+    //   We center on PDF center, flip Y, scale by baseScale*transform.scale,
+    //   rotate around Y by transform.rotDeg, then translate by
+    //   (modelCenterX + tx, modelCenterZ + tz). Y is set by raycasting down.
+    const _downRay = new THREE.Raycaster();
+    const _downDir = new THREE.Vector3(0, -1, 0);
+    function pdfToWorldXZ(srcX, srcY) {
+      const ctx = layoutCtx;
+      const gx = transform.geoStretchX || 1;
+      const gz = transform.geoStretchZ || 1;
+      const dx = (srcX - ctx.pdfCenterX) * ctx.baseScale * transform.scale * gx;
+      const dz = -(srcY - ctx.pdfCenterY) * ctx.baseScale * transform.scale * gz;
+      const rad = transform.rotDeg * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      const rx = dx * c - dz * s;
+      const rz = dx * s + dz * c;
+      return {
+        x: ctx.modelCenterX + transform.tx + rx,
+        z: ctx.modelCenterZ + transform.tz + rz,
+      };
+    }
+    function recomputePileWorldPositions() {
+      if (!layoutCtx || !pileData.length) return;
+      const yAbove = layoutCtx.bbox.max.y + 0.5;
+      const fallbackY = layoutCtx.bbox.min.y + (layoutCtx.bbox.max.y - layoutCtx.bbox.min.y) * 0.5;
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        const w = pdfToWorldXZ(p.srcX, p.srcY);
+        _downRay.set(new THREE.Vector3(w.x, yAbove, w.z), _downDir);
+        const hits = _downRay.intersectObjects(layoutCtx.rayTargets, false);
+        const y = hits.length ? hits[0].point.y : fallbackY;
+        p.position.set(w.x, y, w.z);
+      }
+    }
+    // Push the current pileData[].position into the InstancedMesh + stalk geo.
+    function rebuildPileMeshFromPositions() {
+      if (!pileMesh || !pileStalks) return;
+      const m = new THREE.Matrix4();
+      const sV = new THREE.Vector3(1, 1, 1);
+      const sH = new THREE.Vector3(0.0001, 0.0001, 0.0001);
+      const stalkPos = pileStalks.geometry.attributes.position.array;
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        const visible = visibleMask[i] !== false;
+        m.makeTranslation(p.position.x, p.position.y + markerFloatHeight, p.position.z);
+        m.scale(visible ? sV : sH);
+        pileMesh.setMatrixAt(i, m);
+        stalkPos[i*6+0] = p.position.x;
+        stalkPos[i*6+1] = p.position.y;
+        stalkPos[i*6+2] = p.position.z;
+        stalkPos[i*6+3] = p.position.x;
+        stalkPos[i*6+4] = p.position.y + markerFloatHeight;
+        stalkPos[i*6+5] = p.position.z;
+      }
+      pileMesh.instanceMatrix.needsUpdate = true;
+      pileStalks.geometry.attributes.position.needsUpdate = true;
+    }
+    function applyTransform({ persist = true } = {}) {
+      recomputePileWorldPositions();
+      rebuildPileMeshFromPositions();
+      // Refresh the highlight ring + the info panel's surface elevation.
+      if (selectedIndex >= 0 && selectedIndex < pileData.length) {
+        const p = pileData[selectedIndex];
+        const ring = pileMesh && pileMesh.userData && pileMesh.userData.ring;
+        if (ring && ring.visible) ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
+        $("info-y").textContent = p.position.y.toFixed(3);
+      }
+      if (persist) saveTransform();
+      updateAlignSliderLabels();
+    }
+    function resetTransform() {
+      transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
+      applyTransform();
+      syncAlignUIFromTransform();
+    }
+
+    // Refresh per-instance colors + stalk colors after a colorMode change.
+    function recolorPiles() {
+      if (!pileMesh || !pileStalks) return;
+      const c = new THREE.Color();
+      const stalkCol = pileStalks.geometry.attributes.color.array;
+      for (let i = 0; i < pileData.length; i++) {
+        c.set(pileColorHex(pileData[i]));
+        pileMesh.setColorAt(i, c);
+        stalkCol[i*6+0] = c.r; stalkCol[i*6+1] = c.g; stalkCol[i*6+2] = c.b;
+        stalkCol[i*6+3] = c.r; stalkCol[i*6+4] = c.g; stalkCol[i*6+5] = c.b;
+      }
+      if (pileMesh.instanceColor) pileMesh.instanceColor.needsUpdate = true;
+      pileStalks.geometry.attributes.color.needsUpdate = true;
+    }
+
+    // Apply lock state to the alignment UI.
+    function applyLockState() {
+      document.body.classList.toggle("layout-locked", layoutLocked);
+      const ids = [
+        "align-tx", "align-tz", "align-rot", "align-scale",
+        "align-tx-num", "align-tz-num", "align-rot-num", "align-scale-num",
+        "btn-align-reset", "btn-anchor", "btn-kmz-align",
+        "btn-flip-x", "btn-flip-z",
+      ];
+      ids.forEach(id => { const el = $(id); if (el) el.disabled = layoutLocked; });
+      const lockBtn = $("btn-lock");
+      if (lockBtn) lockBtn.textContent = layoutLocked ? "🔒 Unlock layout" : "🔓 Lock layout";
+      try { localStorage.setItem(LOCK_KEY, layoutLocked ? "1" : "0"); } catch (_) {}
+      // If a user was mid-anchor when they locked, cancel that flow.
+      if (layoutLocked && anchor && anchor.active) exitAnchorMode("Layout locked.");
+    }
+
+    // ---- UI -----------------------------------------------------------------
+    function buildLegendUI(meta) {
+      const container = $("legend-rows");
+      container.innerHTML = "";
+      meta.legend.forEach((row) => {
+        const count = meta.colorCounts[row.color] || 0;
+        const el = document.createElement("div");
+        el.className = "legend-row";
+        el.dataset.color = row.color;
+        el.innerHTML = `
+          <div class="swatch" style="background:${row.hex}"></div>
+          <div>
+            <div class="name">${row.color}</div>
+            <div class="type">${row.postType}</div>
+          </div>
+          <div class="count">${count}</div>
+          <div class="count">${row.length}"</div>
+        `;
+        el.addEventListener("click", () => {
+          if (colorFilter.has(row.color)) colorFilter.delete(row.color);
+          else colorFilter.add(row.color);
+          el.classList.toggle("off");
+          applyFilters();
+        });
+        container.appendChild(el);
+      });
+    }
+    function buildGroupUI(meta) {
+      const order = ["N1","N2","N3","N4","N5","N6","N7-A","N7-B","N8","N9"];
+      const container = $("group-rows");
+      container.innerHTML = "";
+      order.forEach((g) => {
+        const count = meta.groupCounts[g] || 0;
+        if (count === 0) return;
+        const el = document.createElement("div");
+        el.className = "group-row";
+        el.dataset.group = g;
+        const hex = GROUP_COLORS[g] || "#ffffff";
+        el.innerHTML = `
+          <span class="group-swatch" style="background:${hex}"></span>
+          <span class="group-name">${g}</span>
+          <span class="count">${count}</span>
+        `;
+        el.addEventListener("click", () => {
+          if (groupFilter.has(g)) groupFilter.delete(g);
+          else groupFilter.add(g);
+          el.classList.toggle("off");
+          applyFilters();
+        });
+        container.appendChild(el);
+      });
+    }
+
+    const _matrix = new THREE.Matrix4();
+    const _scaleVisible = new THREE.Vector3(1, 1, 1);
+    const _scaleHidden = new THREE.Vector3(0.0001, 0.0001, 0.0001);
+    function applyFilters() {
+      if (!pileMesh) return;
+      let visibleCount = 0;
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        const isVisible = !colorFilter.has(p.color) && !groupFilter.has(p.group);
+        visibleMask[i] = isVisible;
+        _matrix.makeTranslation(p.position.x, p.position.y + markerFloatHeight, p.position.z);
+        _matrix.scale(isVisible ? _scaleVisible : _scaleHidden);
+        pileMesh.setMatrixAt(i, _matrix);
+        if (isVisible) visibleCount++;
+      }
+      pileMesh.instanceMatrix.needsUpdate = true;
+      $("stats").textContent = `${visibleCount} / ${pileData.length} piles visible`;
+    }
+
+    // ---- Interaction --------------------------------------------------------
+    let hoverIndex = -1;
+
+    function onPointerMove(e) {
+      if (!pileMesh) return;
+      const r = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObject(pileMesh);
+      const hit = hits.find(h => visibleMask[h.instanceId]);
+      if (hit) {
+        const idx = hit.instanceId;
+        if (idx !== hoverIndex) {
+          hoverIndex = idx;
+          renderer.domElement.style.cursor = "pointer";
+          const p = pileData[idx];
+          const tip = $("tooltip");
+          tip.style.display = "block";
+          tip.style.left = e.clientX + "px";
+          tip.style.top = e.clientY + "px";
+          const photoBadge = hasPhoto(p) ? " 📷" : "";
+          tip.textContent = `${displaySerial(p)} · ${p.group} · ${p.postType}${photoBadge}`;
+        } else {
+          $("tooltip").style.left = e.clientX + "px";
+          $("tooltip").style.top = e.clientY + "px";
+        }
+      } else if (hoverIndex !== -1) {
+        hoverIndex = -1;
+        renderer.domElement.style.cursor = "";
+        $("tooltip").style.display = "none";
+      }
+    }
+    renderer.domElement.addEventListener("pointermove", onPointerMove);
+
+    function selectPile(index) {
+      selectedIndex = index;
+      const p = pileData[index];
+      const a = assignments[p.pileId] || {};
+      $("info-serial").textContent = a.serial || p.serial;
+      $("info-group").textContent = p.group || "—";
+      $("info-type").textContent = p.postType || "—";
+      $("info-shape").textContent = p.shape || "—";
+      $("info-embed").textContent = (p.embedment != null) ? (p.embedment + ' ft') : "—";
+      $("info-length").textContent = (p.length != null) ? (p.length + '"') : "—";
+      $("info-color").textContent = p.color;
+      $("info-y").textContent = p.position.y.toFixed(3);
+      $("info-pid").textContent = p.pileId;
+      $("info-swatch").style.background = p.hex;
+      // Photo
+      const photoWrap = $("info-photo-wrap");
+      photoWrap.innerHTML = "";
+      if (a.photo) {
+        const img = document.createElement("img");
+        img.src = a.photo;
+        img.alt = p.pileId;
+        photoWrap.appendChild(img);
+        $("info-photo-tag").style.display = "";
+      } else {
+        const ph = document.createElement("div");
+        ph.className = "placeholder";
+        ph.textContent = READONLY ? "No photo" : "No photo — click Upload";
+        photoWrap.appendChild(ph);
+        $("info-photo-tag").style.display = "none";
+      }
+      // Serial input value
+      $("serial-input").value = a.serial || "";
+      $("serial-input").placeholder = p.serial;
+
+      $("info").classList.add("shown");
+
+      // Move highlight ring to selected pile
+      const ring = pileMesh.userData.ring;
+      if (ring) {
+        ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
+        ring.visible = true;
+      }
+    }
+
+    function refreshSelected() {
+      if (selectedIndex >= 0) selectPile(selectedIndex);
+      updateAssignedCount();
+    }
+
+    renderer.domElement.addEventListener("click", (e) => {
+      if (!pileMesh) return;
+      // Anchor mode consumes clicks first.
+      if (anchor.active && handleAnchorClick(e)) return;
+      const r = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObject(pileMesh);
+      const hit = hits.find(h => visibleMask[h.instanceId]);
+      if (hit) selectPile(hit.instanceId);
+    });
+
+    // Escape exits anchor mode.
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && anchor.active) exitAnchorMode("Anchor mode cancelled.");
+    });
+
+    $("info-close").addEventListener("click", () => {
+      $("info").classList.remove("shown");
+      if (pileMesh && pileMesh.userData.ring) pileMesh.userData.ring.visible = false;
+      selectedIndex = -1;
+    });
+
+    // ---- Admin edit handlers -----------------------------------------------
+    $("photo-upload-btn").addEventListener("click", () => $("photo-input").click());
+
+    $("photo-input").addEventListener("change", async (e) => {
+      if (READONLY) return;
+      const file = e.target.files && e.target.files[0];
+      if (!file || selectedIndex < 0) return;
+      try {
+        const dataURL = await fileToResizedDataURL(file, 800, 0.78);
+        const p = pileData[selectedIndex];
+        const a = assignments[p.pileId] || {};
+        a.photo = dataURL;
+        a.updatedAt = Date.now();
+        assignments[p.pileId] = a;
+        saveAssignments();
+        refreshSelected();
+        toast("Photo saved");
+      } catch (err) {
+        console.error(err);
+        toast("Could not load image", 3000);
+      }
+      e.target.value = "";
+    });
+
+    $("photo-clear-btn").addEventListener("click", () => {
+      if (READONLY || selectedIndex < 0) return;
+      const p = pileData[selectedIndex];
+      const a = assignments[p.pileId];
+      if (a && a.photo) {
+        delete a.photo;
+        if (!a.serial) delete assignments[p.pileId];
+        else a.updatedAt = Date.now();
+        saveAssignments();
+        refreshSelected();
+        toast("Photo removed");
+      }
+    });
+
+    $("info-save").addEventListener("click", () => {
+      if (READONLY || selectedIndex < 0) return;
+      const p = pileData[selectedIndex];
+      const sv = $("serial-input").value.trim();
+      const a = assignments[p.pileId] || {};
+      if (sv && sv !== p.serial) {
+        a.serial = sv;
+      } else {
+        delete a.serial;
+      }
+      a.updatedAt = Date.now();
+      if (!a.serial && !a.photo) delete assignments[p.pileId];
+      else assignments[p.pileId] = a;
+      saveAssignments();
+      refreshSelected();
+      toast("Saved");
+    });
+
+    $("info-reset").addEventListener("click", () => {
+      if (READONLY || selectedIndex < 0) return;
+      const p = pileData[selectedIndex];
+      if (assignments[p.pileId]) {
+        delete assignments[p.pileId];
+        saveAssignments();
+        refreshSelected();
+        toast("Reset to defaults");
+      }
+    });
+
+    // ---- Share / export / import -------------------------------------------
+    $("btn-copy-link").addEventListener("click", async () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", "readonly");
+      const link = url.toString();
+      try {
+        await navigator.clipboard.writeText(link);
+        toast("Read-only link copied to clipboard");
+      } catch (_) {
+        // Fallback: prompt
+        window.prompt("Read-only link:", link);
+      }
+    });
+
+    $("btn-export").addEventListener("click", () => {
+      const out = {
+        project: "Midway",
+        exportedAt: new Date().toISOString(),
+        assignments,
+      };
+      const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "pile_assignments.json";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      toast("Downloaded pile_assignments.json");
+    });
+
+    $("btn-import").addEventListener("click", () => $("import-input").click());
+
+    $("import-input").addEventListener("change", async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try {
+        const txt = await file.text();
+        const parsed = JSON.parse(txt);
+        const incoming = parsed.assignments || parsed;
+        if (typeof incoming !== "object" || !incoming) throw new Error("bad shape");
+        let merged = 0;
+        for (const [k, v] of Object.entries(incoming)) {
+          if (!v) continue;
+          assignments[k] = { ...(assignments[k] || {}), ...v };
+          merged++;
+        }
+        saveAssignments();
+        refreshSelected();
+        toast(`Imported ${merged} assignments`);
+      } catch (err) {
+        console.error(err);
+        toast("Import failed: " + (err.message || err), 4000);
+      }
+      e.target.value = "";
+    });
+
+    // ---- Alignment UI ------------------------------------------------------
+    function syncAlignUIFromTransform() {
+      $("align-tx").value = transform.tx;
+      $("align-tx-num").value = transform.tx.toFixed(3);
+      $("align-tz").value = transform.tz;
+      $("align-tz-num").value = transform.tz.toFixed(3);
+      $("align-rot").value = transform.rotDeg;
+      $("align-rot-num").value = transform.rotDeg.toFixed(2);
+      $("align-scale").value = transform.scale;
+      $("align-scale-num").value = transform.scale.toFixed(3);
+    }
+    function updateAlignSliderLabels() {
+      // Numbers track sliders so user sees exact values.
+      $("align-tx-num").value = transform.tx.toFixed(3);
+      $("align-tz-num").value = transform.tz.toFixed(3);
+      $("align-rot-num").value = transform.rotDeg.toFixed(2);
+      $("align-scale-num").value = transform.scale.toFixed(3);
+    }
+    function bindAlign(rangeId, numId, key, decimals = 3) {
+      const r = $(rangeId), n = $(numId);
+      r.addEventListener("input", () => {
+        transform[key] = parseFloat(r.value) || 0;
+        applyTransform({ persist: false });
+      });
+      r.addEventListener("change", () => saveTransform());
+      n.addEventListener("change", () => {
+        const v = parseFloat(n.value);
+        if (!Number.isFinite(v)) return;
+        transform[key] = v;
+        r.value = v;
+        applyTransform();
+      });
+    }
+    bindAlign("align-tx", "align-tx-num", "tx");
+    bindAlign("align-tz", "align-tz-num", "tz");
+    bindAlign("align-rot", "align-rot-num", "rotDeg");
+    bindAlign("align-scale", "align-scale-num", "scale");
+    $("btn-align-reset").addEventListener("click", () => {
+      if (layoutLocked) return;
+      resetTransform();
+      toast("Alignment reset");
+    });
+
+    $("btn-lock").addEventListener("click", () => {
+      layoutLocked = !layoutLocked;
+      applyLockState();
+      toast(layoutLocked ? "Layout locked" : "Layout unlocked — alignment editable");
+    });
+
+    $("btn-flip-x").addEventListener("click", () => {
+      if (layoutLocked) return;
+      transform.geoStretchX = (transform.geoStretchX || 1) * -1;
+      applyTransform();
+      toast("Flipped horizontally");
+    });
+    $("btn-flip-z").addEventListener("click", () => {
+      if (layoutLocked) return;
+      transform.geoStretchZ = (transform.geoStretchZ || 1) * -1;
+      applyTransform();
+      toast("Flipped vertically");
+    });
+
+    // Color-mode picker
+    function setColorMode(mode) {
+      colorMode = mode;
+      try { localStorage.setItem(COLOR_MODE_KEY, mode); } catch (_) {}
+      document.querySelectorAll(".color-mode-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.mode === mode);
+      });
+      recolorPiles();
+    }
+    document.querySelectorAll(".color-mode-btn").forEach(b => {
+      b.addEventListener("click", () => setColorMode(b.dataset.mode));
+    });
+
+    // ---- KMZ georeference --------------------------------------------------
+    // Mapping uses the combined CAD-overlay lat/lon bbox as the geographic
+    // frame, and assumes the model's XZ bbox covers that same frame. The
+    // result is far better than naive PDF→bbox fit because we use real
+    // meter-scale aspect (longitude scaled by cos(lat)).
+    function kmzAlign() {
+      const kmz = window.__kmz;
+      if (!kmz || !kmz.combinedOverlayBbox || !layoutCtx) {
+        toast("KMZ reference not loaded");
+        return;
+      }
+      const bb = kmz.combinedOverlayBbox;
+      const pdf = layoutCtx;  // has pdfCenterX, pdfCenterY, baseScale (unused here)
+      // PDF pile bbox from the original data.
+      const pBounds = window.__pdfBounds;
+      if (!pBounds) { toast("Missing PDF bounds"); return; }
+
+      const lonC = (bb.east + bb.west) / 2;
+      const latC = (bb.north + bb.south) / 2;
+      const cosLat = Math.cos(latC * Math.PI / 180);
+      // Geographic span in meters.
+      const lonSpanM = (bb.east - bb.west) * 111320 * cosLat;
+      const latSpanM = (bb.north - bb.south) * 110540;
+
+      // PDF pile bbox dimensions (in PDF points).
+      const pdfW = pBounds.maxX - pBounds.minX;
+      const pdfH = pBounds.maxY - pBounds.minY;
+
+      // Model XZ bbox dimensions.
+      const modelW = layoutCtx.bbox.max.x - layoutCtx.bbox.min.x;
+      const modelD = layoutCtx.bbox.max.z - layoutCtx.bbox.min.z;
+
+      // We need pdfPointToModelUnit. The chain is:
+      //   PDF point -> meters (using overlay frame)
+      //   meters -> model units (using model-frame-assumed-=-overlay-frame)
+      // For a single uniform scale (sliders use uniform scale), fit
+      // longitudinally so the field's width matches.
+      // 1 PDF point ≈ lonSpanM / pdfW meters
+      // 1 meter ≈ modelW / lonSpanM model units (lon direction)
+      // so 1 PDF point ≈ modelW / pdfW model units
+      // That's literally the existing baseScale (PDF→model X), so adjust
+      // to the correct meter aspect by using the geographic mid-axis scale.
+      // We want a SINGLE scale multiplier on top of baseScale that makes
+      // the layout's longitudinal extent equal to the model's longitudinal
+      // span weighted by the geo aspect. In practice the cleanest path is:
+      //   targetMeterPerModelUnit = sqrt(lonSpanM*latSpanM / (modelW*modelD))
+      //   targetMeterPerPdfPt   = sqrt(lonSpanM*latSpanM / (pdfW*pdfH))
+      //   so PDF→model = targetMeterPerPdfPt / targetMeterPerModelUnit
+      //                = sqrt((modelW*modelD)/(pdfW*pdfH))
+      // That's the baseScale already used. KMZ refinement: rotate to align
+      // PDF "up" (north) with the model's north axis. For an unknown
+      // orientation we leave rotation at 0 and let user adjust.
+      // The real value of KMZ here is making sure the layout's *meter
+      // aspect ratio* gets respected: if PDF is taller than geo, we should
+      // squish vertically.
+      const pdfAspect = pdfW / pdfH;
+      const geoAspect = lonSpanM / latSpanM;
+      // Apply an x/z stretch ratio. Since our transform exposes only a
+      // single uniform scale, we instead pre-distort the PDF coordinates
+      // when computing world XZ. We do this via two scale factors stored
+      // on the transform.
+      transform.scale = 1;
+      transform.tx = 0;
+      transform.tz = 0;
+      transform.rotDeg = 0;
+      transform.geoStretchX = 1;
+      transform.geoStretchZ = pdfAspect / geoAspect; // squish Z if PDF taller than geo
+      applyTransform();
+      syncAlignUIFromTransform();
+      toast(`KMZ georef applied (Z stretch ${transform.geoStretchZ.toFixed(3)})`);
+    }
+    $("btn-kmz-align").addEventListener("click", kmzAlign);
+
+    // -- CAD overlay drape --
+    // Drop the KMZ overlay JPEGs onto the terrain at their georeferenced
+    // positions. The model's XZ bbox is treated as the combined overlay
+    // bbox, so each overlay gets a sub-rectangle inside the model's
+    // footprint based on its own lat/lon corners.
+    let cadOverlayGroup = null;
+    function toggleCadOverlay() {
+      const kmz = window.__kmz;
+      if (!kmz || !kmz.overlays || !kmz.combinedOverlayBbox || !layoutCtx) {
+        toast("KMZ reference not loaded");
+        return;
+      }
+      if (cadOverlayGroup) {
+        cadOverlayGroup.visible = !cadOverlayGroup.visible;
+        $("btn-toggle-overlay").textContent = cadOverlayGroup.visible ? "Hide CAD overlay" : "Show CAD overlay";
+        toast(cadOverlayGroup.visible ? "CAD overlay shown" : "CAD overlay hidden");
+        return;
+      }
+      cadOverlayGroup = new THREE.Group();
+      cadOverlayGroup.name = "CAD overlays";
+      const cb = kmz.combinedOverlayBbox;
+      const bbox = layoutCtx.bbox;
+      const modelMinX = bbox.min.x, modelMaxX = bbox.max.x;
+      const modelMinZ = bbox.min.z, modelMaxZ = bbox.max.z;
+      const yPlace = bbox.max.y + 0.001;
+      kmz.overlays.forEach((ov) => {
+        const px = (lon) => modelMinX + (lon - cb.west) / (cb.east - cb.west) * (modelMaxX - modelMinX);
+        const pz = (lat) => modelMinZ + (cb.north - lat) / (cb.north - cb.south) * (modelMaxZ - modelMinZ);
+        const x0 = px(ov.west),  x1 = px(ov.east);
+        const z0 = pz(ov.north), z1 = pz(ov.south);
+        const w = x1 - x0, d = z1 - z0;
+        if (!isFinite(w) || !isFinite(d) || w <= 0 || d <= 0) return;
+        const url = "data/kmz/" + ov.icon;
+        new THREE.TextureLoader().load(url, (tex) => {
+          tex.encoding = THREE.sRGBEncoding;
+          const geo = new THREE.PlaneGeometry(w, d);
+          geo.rotateX(-Math.PI / 2);
+          const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.6, depthWrite: false });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(x0 + w/2, yPlace, z0 + d/2);
+          cadOverlayGroup.add(mesh);
+        });
+      });
+      scene.add(cadOverlayGroup);
+      $("btn-toggle-overlay").textContent = "Hide CAD overlay";
+      toast("CAD overlay drawn from KMZ");
+    }
+    $("btn-toggle-overlay").addEventListener("click", toggleCadOverlay);
+
+    // -- Preset camera views --
+    function tweenCamera(toPos, toTarget, ms = 600) {
+      const startPos = camera.position.clone();
+      const startTgt = controls.target.clone();
+      const endPos = toPos.clone();
+      const endTgt = toTarget.clone();
+      const t0 = performance.now();
+      function step() {
+        const k = Math.min(1, (performance.now() - t0) / ms);
+        const e = 1 - Math.pow(1 - k, 3);
+        camera.position.lerpVectors(startPos, endPos, e);
+        controls.target.lerpVectors(startTgt, endTgt, e);
+        controls.update();
+        if (k < 1) requestAnimationFrame(step);
+      }
+      step();
+    }
+    $("btn-view-top").addEventListener("click", () => {
+      if (!layoutCtx) return;
+      const bb = layoutCtx.bbox;
+      const size = bb.getSize(new THREE.Vector3());
+      const center = bb.getCenter(new THREE.Vector3());
+      const d = Math.max(size.x, size.z) * 1.4;
+      tweenCamera(new THREE.Vector3(center.x, bb.max.y + d, center.z + 0.001), new THREE.Vector3(center.x, bb.min.y, center.z));
+    });
+    $("btn-view-iso").addEventListener("click", () => {
+      if (!layoutCtx) return;
+      const bb = layoutCtx.bbox;
+      const size = bb.getSize(new THREE.Vector3());
+      const center = bb.getCenter(new THREE.Vector3());
+      const r = Math.max(size.x, size.z) * 1.0;
+      tweenCamera(new THREE.Vector3(center.x + r*0.9, center.y + size.y + r*0.8, center.z + r*0.9), new THREE.Vector3(center.x, center.y + size.y*0.3, center.z));
+    });
+
+    // -- Two-point anchor mode --
+    // Sequence: pick pile A -> pick target A -> pick pile B -> pick target B
+    // Then solve scale+rotation+translation so both pairs match.
+    const anchor = {
+      active: false,
+      step: 0,  // 0..4
+      A: null, // { pilePdfX, pilePdfY, targetX, targetZ }
+      B: null,
+    };
+    function setAnchorStatus(text, active = true) {
+      const el = $("anchor-status");
+      el.textContent = text;
+      el.classList.toggle("active", !!active);
+    }
+    function exitAnchorMode(msg) {
+      anchor.active = false;
+      anchor.step = 0;
+      anchor.A = null; anchor.B = null;
+      document.body.classList.remove("anchor-pick-pile", "anchor-pick-target");
+      if (msg) setAnchorStatus(msg, false);
+      else setAnchorStatus("Tip: drag sliders, or use 2-pt anchor to align by clicking two reference points.", false);
+    }
+    function advanceAnchorPrompt() {
+      if (anchor.step === 0) { setAnchorStatus("Step 1/4: Click the first reference pile (white dot)."); document.body.classList.add("anchor-pick-pile"); document.body.classList.remove("anchor-pick-target"); }
+      else if (anchor.step === 1) { setAnchorStatus("Step 2/4: Click on the model where that pile should sit."); document.body.classList.add("anchor-pick-target"); document.body.classList.remove("anchor-pick-pile"); }
+      else if (anchor.step === 2) { setAnchorStatus("Step 3/4: Click a second reference pile."); document.body.classList.add("anchor-pick-pile"); document.body.classList.remove("anchor-pick-target"); }
+      else if (anchor.step === 3) { setAnchorStatus("Step 4/4: Click the second target on the model."); document.body.classList.add("anchor-pick-target"); document.body.classList.remove("anchor-pick-pile"); }
+    }
+    $("btn-anchor").addEventListener("click", () => {
+      if (anchor.active) { exitAnchorMode("Anchor mode cancelled."); return; }
+      anchor.active = true;
+      anchor.step = 0;
+      anchor.A = null; anchor.B = null;
+      advanceAnchorPrompt();
+    });
+
+    function solveAnchorTransform() {
+      // Two pairs (a_pdf, A_world) and (b_pdf, B_world).
+      // Solve similarity transform such that PDF->world. Update `transform`.
+      const ctx = layoutCtx;
+      const ax = (anchor.A.pilePdfX - ctx.pdfCenterX);
+      const ay = -(anchor.A.pilePdfY - ctx.pdfCenterY); // flip Y once
+      const bx = (anchor.B.pilePdfX - ctx.pdfCenterX);
+      const by = -(anchor.B.pilePdfY - ctx.pdfCenterY);
+      const Ax = anchor.A.targetX - ctx.modelCenterX;
+      const Az = anchor.A.targetZ - ctx.modelCenterZ;
+      const Bx = anchor.B.targetX - ctx.modelCenterX;
+      const Bz = anchor.B.targetZ - ctx.modelCenterZ;
+      // Vector PDF: (vpx, vpy); vector world: (vwx, vwz).
+      const vpx = bx - ax, vpy = by - ay;
+      const vwx = Bx - Ax, vwz = Bz - Az;
+      const lp = Math.hypot(vpx, vpy);
+      const lw = Math.hypot(vwx, vwz);
+      if (lp < 1e-6 || lw < 1e-6) { exitAnchorMode("Anchors too close — try again."); return; }
+      // Scale relative to baseScale (so transform.scale stays a multiplier).
+      const totalScale = lw / lp;
+      transform.scale = totalScale / ctx.baseScale;
+      // Rotation: angle(vw) - angle(vp).
+      const angP = Math.atan2(vpy, vpx);
+      const angW = Math.atan2(vwz, vwx);
+      transform.rotDeg = ((angW - angP) * 180 / Math.PI);
+      // Translation: chosen so anchor A lands on its target.
+      // After scale + rotation, PDF point a -> rotated by transform.rotDeg
+      // and scaled by baseScale*transform.scale. Translation is what makes
+      // that equal to (Ax, Az).
+      const rad = transform.rotDeg * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      const sFac = ctx.baseScale * transform.scale;
+      const apx = ax * sFac * c - ay * sFac * s;
+      const apz = ax * sFac * s + ay * sFac * c;
+      transform.tx = Ax - apx;
+      transform.tz = Az - apz;
+      applyTransform();
+      syncAlignUIFromTransform();
+      exitAnchorMode(`Aligned · scale ${transform.scale.toFixed(3)} · rot ${transform.rotDeg.toFixed(1)}°`);
+      toast("Alignment applied");
+    }
+
+    function handleAnchorClick(e) {
+      if (!anchor.active || !pileMesh) return false;
+      const r = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      // Step 0 & 2: pick a pile
+      if (anchor.step === 0 || anchor.step === 2) {
+        const hits = raycaster.intersectObject(pileMesh);
+        const hit = hits.find(h => visibleMask[h.instanceId]);
+        if (!hit) { toast("Click directly on a white pile dot"); return true; }
+        const p = pileData[hit.instanceId];
+        if (anchor.step === 0) anchor.A = { pilePdfX: p.srcX, pilePdfY: p.srcY };
+        else anchor.B = { pilePdfX: p.srcX, pilePdfY: p.srcY };
+        anchor.step++;
+        advanceAnchorPrompt();
+        return true;
+      }
+      // Step 1 & 3: pick a target point on the terrain
+      if (anchor.step === 1 || anchor.step === 3) {
+        const hits = raycaster.intersectObjects(layoutCtx.rayTargets, false);
+        if (!hits.length) { toast("Click on the terrain"); return true; }
+        const h = hits[0].point;
+        if (anchor.step === 1) { anchor.A.targetX = h.x; anchor.A.targetZ = h.z; }
+        else { anchor.B.targetX = h.x; anchor.B.targetZ = h.z; }
+        anchor.step++;
+        if (anchor.step >= 4) solveAnchorTransform();
+        else advanceAnchorPrompt();
+        return true;
+      }
+      return false;
+    }
+
+    $("btn-export-align").addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify(transform, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "pile_transform.json";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      toast("Downloaded pile_transform.json");
+    });
+
+    $("btn-clear-all").addEventListener("click", () => {
+      if (READONLY) return;
+      if (!Object.keys(assignments).length) { toast("Nothing to clear"); return; }
+      if (!confirm("Clear all local assignments? This cannot be undone.")) return;
+      assignments = {};
+      saveAssignments();
+      refreshSelected();
+      toast("Cleared local assignments");
+    });
+
+    $("search").addEventListener("input", (e) => {
+      const q = e.target.value.trim().toUpperCase();
+      if (!q || !pileData.length) return;
+      // Match by override serial first, then by auto-assigned serial / digits
+      let target = pileData.find(p => {
+        const a = assignments[p.pileId];
+        return (a && a.serial && a.serial.toUpperCase() === q) || p.serial === q;
+      });
+      if (!target) {
+        const digits = q.replace(/\D+/g, "");
+        if (digits) {
+          const padded = "P-" + digits.padStart(4, "0");
+          target = pileData.find(p => p.serial === padded);
+        }
+      }
+      if (target) {
+        const idx = pileData.indexOf(target);
+        selectPile(idx);
+        // Tween camera target to the pile
+        const t = controls.target;
+        const targetVec = new THREE.Vector3(target.position.x, target.position.y, target.position.z);
+        const start = t.clone();
+        const startCam = camera.position.clone();
+        const offset = camera.position.clone().sub(start);
+        const dist = offset.length();
+        const desired = 0.6;
+        const newOffset = offset.normalize().multiplyScalar(Math.min(dist, Math.max(desired, dist * 0.5)));
+        const endCam = targetVec.clone().add(newOffset);
+        const t0 = performance.now();
+        function step() {
+          const k = Math.min(1, (performance.now() - t0) / 700);
+          const e = 1 - Math.pow(1 - k, 3);
+          t.lerpVectors(start, targetVec, e);
+          camera.position.lerpVectors(startCam, endCam, e);
+          controls.update();
+          if (k < 1) requestAnimationFrame(step);
+        }
+        step();
+      }
+    });
+
+    // ---- Resize + animate --------------------------------------------------
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      // Pulse the ring on the selected pile
+      if (pileMesh && pileMesh.userData.ring && pileMesh.userData.ring.visible) {
+        const s = 1 + Math.sin(performance.now() * 0.006) * 0.12;
+        pileMesh.userData.ring.scale.set(s, 1, s);
+      }
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
