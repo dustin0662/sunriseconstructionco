@@ -446,6 +446,12 @@
     border: 1px solid rgba(249,115,22,0.4);
   }
 
+  /* Dots removed: hide pile-only UI (groups, serial search, color picker). */
+  #groups { display: none !important; }
+  #search { display: none !important; }
+  .color-mode-row { display: none !important; }
+  #mobile-nav button[data-sheet="groups"] { display: none !important; }
+
   /* ============================ MOBILE ============================ */
   #mobile-nav { display: none; }
   #sheet-backdrop { display: none; }
@@ -600,15 +606,7 @@
     <h3>Alignment</h3>
 
     <div class="align-section">
-      <div class="align-section-label">Overlay</div>
-      <div class="edit-mode-row">
-        <button class="btn edit-mode-btn overlay-mode-btn" data-overlay="modules">Modules</button>
-        <button class="btn edit-mode-btn overlay-mode-btn" data-overlay="dots">Dots</button>
-      </div>
-    </div>
-
-    <div class="align-section">
-      <div class="align-section-label">Edit target</div>
+      <div class="align-section-label">Module sheet</div>
       <div id="edit-target-row"></div>
     </div>
 
@@ -642,6 +640,16 @@
       <label>Scale</label>
       <input type="range" id="align-scale" min="0.3" max="2" step="0.005" value="1" />
       <input type="number" id="align-scale-num" step="0.01" value="1" />
+    </div>
+    <div class="align-row">
+      <label>Stretch ↔</label>
+      <input type="range" id="align-stretchx" min="0.2" max="3" step="0.005" value="1" />
+      <input type="number" id="align-stretchx-num" step="0.01" value="1" />
+    </div>
+    <div class="align-row">
+      <label>Stretch ↕</label>
+      <input type="range" id="align-stretchz" min="0.2" max="3" step="0.005" value="1" />
+      <input type="number" id="align-stretchz-num" step="0.01" value="1" />
     </div>
     <div class="align-buttons">
       <button class="btn" id="btn-lock">🔒 Unlock layout</button>
@@ -944,7 +952,8 @@
     // ---- Module (stringing-plan) overlay state -----------------------------
     // Overlay mode: 'dots' (piles) or 'modules' (flat PV-module quads).
     const OVERLAY_KEY = "midway_overlay_mode_v1";
-    let overlayMode = localStorage.getItem(OVERLAY_KEY) || "modules";
+    // Dots removed — modules are the only overlay now.
+    let overlayMode = "modules";
     let moduleMesh = null;          // THREE.Mesh of flat quads
     let moduleRecords = [];         // [{sheet, srcX, srcY}]
     let moduleSheets = [];          // [{id, w, h, baseScale, pdfCx, pdfCy, count}]
@@ -959,7 +968,9 @@
       try { localStorage.setItem(SHEET_TRANSFORMS_KEY, JSON.stringify(sheetTransforms)); } catch (_) {}
     }
     function ensureSheetT(id) {
-      if (!sheetTransforms[id]) sheetTransforms[id] = { tx: 0, tz: 0, rotDeg: 0, scale: 1, flipX: 1, flipZ: 1 };
+      if (!sheetTransforms[id]) sheetTransforms[id] = { tx: 0, tz: 0, rotDeg: 0, scale: 1, stretchX: 1, stretchZ: 1, flipX: 1, flipZ: 1 };
+      if (sheetTransforms[id].stretchX === undefined) sheetTransforms[id].stretchX = 1;
+      if (sheetTransforms[id].stretchZ === undefined) sheetTransforms[id].stretchZ = 1;
       return sheetTransforms[id];
     }
     // Per-sheet colors (match the group palette feel).
@@ -1159,7 +1170,9 @@
       if (transform.tx || transform.tz || transform.rotDeg || transform.scale !== 1) {
         applyTransform({ persist: false });
       }
-      $("stats").textContent = `${pileData.length} piles · ${Object.keys(data.meta.groupCounts).length} groups`;
+      $("stats").textContent = moduleSet && moduleSet.meta
+        ? `${moduleSet.meta.total.toLocaleString()} modules · ${moduleSet.meta.sheets.length} sheets`
+        : `${pileData.length} piles`;
 
       $("loading").classList.add("hidden");
     })
@@ -1389,6 +1402,7 @@
     function resetTransform() {
       if (overlayMode === "modules") {
         delete sheetTransforms[editTarget];
+        ensureSheetT(editTarget);  // reset to identity defaults
         saveSheetTransforms();
       } else if (editTarget === "ALL") {
         transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
@@ -1416,7 +1430,7 @@
         const baseScale = Math.min(size.x * 0.45 / pw, size.z * 0.45 / ph);
         if (!sheetTransforms[sh.id]) {
           const s = stagger[idx % 4];
-          sheetTransforms[sh.id] = { tx: s[0]*size.x, tz: s[1]*size.z, rotDeg: 0, scale: 1, flipX: 1, flipZ: 1 };
+          sheetTransforms[sh.id] = { tx: s[0]*size.x, tz: s[1]*size.z, rotDeg: 0, scale: 1, stretchX: 1, stretchZ: 1, flipX: 1, flipZ: 1 };
         }
         return {
           id: sh.id, idx, w: sh.w || 12.8, h: sh.h || 5.9,
@@ -1455,9 +1469,13 @@
     }
 
     // Transform a module's PDF point into world XZ via its sheet's transform.
+    // stretchX/stretchZ apply independent (non-uniform) scaling along the
+    // sheet's local axes so the field can be fit to the model.
     function sheetPdfToWorldXZ(sheet, st, srcX, srcY, out) {
-      const dx = (srcX - sheet.pdfCx) * sheet.baseScale * (st.scale || 1) * (st.flipX || 1);
-      const dz = -(srcY - sheet.pdfCy) * sheet.baseScale * (st.scale || 1) * (st.flipZ || 1);
+      const sx = (st.scale || 1) * (st.stretchX || 1) * (st.flipX || 1);
+      const sz = (st.scale || 1) * (st.stretchZ || 1) * (st.flipZ || 1);
+      const dx = (srcX - sheet.pdfCx) * sheet.baseScale * sx;
+      const dz = -(srcY - sheet.pdfCy) * sheet.baseScale * sz;
       const rad = (st.rotDeg || 0) * Math.PI / 180;
       const cs = Math.cos(rad), sn = Math.sin(rad);
       out.x = layoutCtx.modelCenterX + (st.tx || 0) + (dx * cs - dz * sn);
@@ -1473,9 +1491,10 @@
         const m = moduleRecords[i];
         const sheet = moduleSheets[m.s];
         const st = ensureSheetT(sheet.id);
-        // Half-extents in world units (scale applied; rotation handled by corner offsets).
-        const hw = sheet.w * 0.5 * sheet.baseScale * (st.scale || 1);
-        const hh = sheet.h * 0.5 * sheet.baseScale * (st.scale || 1);
+        // Half-extents in world units stretch with the field so cells stay
+        // contiguous after a non-uniform stretch.
+        const hw = sheet.w * 0.5 * sheet.baseScale * (st.scale || 1) * (st.stretchX || 1);
+        const hh = sheet.h * 0.5 * sheet.baseScale * (st.scale || 1) * (st.stretchZ || 1);
         const rad = (st.rotDeg || 0) * Math.PI / 180;
         const cs = Math.cos(rad), sn = Math.sin(rad);
         sheetPdfToWorldXZ(sheet, st, m.x, m.y, o1);
@@ -1590,8 +1609,8 @@
     function applyLockState() {
       document.body.classList.toggle("layout-locked", layoutLocked);
       const ids = [
-        "align-tx", "align-tz", "align-rot", "align-scale",
-        "align-tx-num", "align-tz-num", "align-rot-num", "align-scale-num",
+        "align-tx", "align-tz", "align-rot", "align-scale", "align-stretchx", "align-stretchz",
+        "align-tx-num", "align-tz-num", "align-rot-num", "align-scale-num", "align-stretchx-num", "align-stretchz-num",
         "btn-align-reset", "btn-anchor", "btn-kmz-align",
         "btn-flip-x", "btn-flip-z",
       ];
@@ -1997,6 +2016,10 @@
       $("align-rot-num").value = (t.rotDeg || 0).toFixed(2);
       $("align-scale").value = t.scale;
       $("align-scale-num").value = (t.scale || 1).toFixed(3);
+      $("align-stretchx").value = (t.stretchX === undefined ? 1 : t.stretchX);
+      $("align-stretchx-num").value = (t.stretchX === undefined ? 1 : t.stretchX).toFixed(3);
+      $("align-stretchz").value = (t.stretchZ === undefined ? 1 : t.stretchZ);
+      $("align-stretchz-num").value = (t.stretchZ === undefined ? 1 : t.stretchZ).toFixed(3);
     }
     function updateAlignSliderLabels() {
       const t = activeTransform();
@@ -2004,6 +2027,8 @@
       $("align-tz-num").value = (t.tz || 0).toFixed(3);
       $("align-rot-num").value = (t.rotDeg || 0).toFixed(2);
       $("align-scale-num").value = (t.scale || 1).toFixed(3);
+      $("align-stretchx-num").value = (t.stretchX === undefined ? 1 : t.stretchX).toFixed(3);
+      $("align-stretchz-num").value = (t.stretchZ === undefined ? 1 : t.stretchZ).toFixed(3);
     }
     // Returns the active transform object (sheet / global / per-group).
     function activeTransform() {
@@ -2035,6 +2060,8 @@
     bindAlign("align-tz", "align-tz-num", "tz");
     bindAlign("align-rot", "align-rot-num", "rotDeg");
     bindAlign("align-scale", "align-scale-num", "scale");
+    bindAlign("align-stretchx", "align-stretchx-num", "stretchX");
+    bindAlign("align-stretchz", "align-stretchz-num", "stretchZ");
     $("btn-align-reset").addEventListener("click", () => {
       if (layoutLocked) return;
       resetTransform();
