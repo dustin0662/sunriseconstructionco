@@ -1002,10 +1002,13 @@
       fetch("data/kmz_reference.json").then(r => r.ok ? r.json() : null).catch(() => null),
       // Module rectangles from the stringing plans (E120-E123). Optional.
       fetch("data/modules.json").then(r => r.ok ? r.json() : null).catch(() => null),
+      // Auto-traced CAD cells (from the overlay JPEGs). Optional.
+      fetch("data/cad_cells.json").then(r => r.ok ? r.json() : null).catch(() => null),
     ])
-    .then(([gltf, data, committed, committedTransform, kmz, moduleSet]) => {
+    .then(([gltf, data, committed, committedTransform, kmz, moduleSet, cadCells]) => {
       window.__kmz = kmz;
       window.__moduleSet = moduleSet;
+      window.__cadCells = cadCells;
       // Merge committed -> localStorage takes precedence so admin edits "win" locally.
       if (committed && typeof committed === "object" && committed.assignments) {
         for (const [k, v] of Object.entries(committed.assignments)) {
@@ -1912,6 +1915,20 @@
       pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
       const tip = $("tooltip");
+      // Hover auto-traced CAD cells first (when the CAD overlay is shown).
+      if (autoCellMesh && cadOverlayGroup && cadOverlayGroup.visible) {
+        const ah = raycaster.intersectObject(autoCellMesh);
+        if (ah.length && ah[0].faceIndex != null) {
+          const i = Math.floor(ah[0].faceIndex / 2);
+          const rec = autoCellRecords[i];
+          const a = (rec && assignments[rec.id]) || {};
+          renderer.domElement.style.cursor = "pointer";
+          tip.style.display = "block";
+          tip.style.left = e.clientX + "px"; tip.style.top = e.clientY + "px";
+          tip.textContent = (a.serial || (rec ? rec.id : "")) + (a.photo ? " 📷" : "");
+          return;
+        }
+      }
       // Hover the module cells (the clickable overlay).
       if (moduleMesh && moduleMesh.visible) {
         const mhits = raycaster.intersectObject(moduleMesh);
@@ -2018,6 +2035,14 @@
         highlightModule(currentSel.moduleIdx);
       }
       if (currentSel && currentSel.placed) refreshPlacedColors();
+      if (currentSel && currentSel.autoIdx != null) {
+        const keepIdx = currentSel.autoIdx;
+        autoHiIdx = -1; autoHiOrig = null;  // discard stale before retint
+        applyAutoCellTints();
+        selectAutoCell(keepIdx);            // re-highlights + re-populates panel
+        updateAssignedCount();
+        return;
+      }
       if (currentSel) populateInfoPanel();
       updateAssignedCount();
     }
@@ -2047,6 +2072,13 @@
         if (phits.length) {
           const id = phits[0].object.userData.cellId;
           if (id) { selectPlacedCell(id); return; }
+        }
+      }
+      // Auto-traced CAD cells (when the CAD overlay is shown).
+      if (autoCellMesh && cadOverlayGroup && cadOverlayGroup.visible) {
+        const ahits = raycaster.intersectObject(autoCellMesh);
+        if (ahits.length && ahits[0].faceIndex != null) {
+          selectAutoCell(Math.floor(ahits[0].faceIndex / 2)); return;
         }
       }
       // Then module cells (the visible overlay) when shown.
@@ -2544,6 +2576,7 @@
       const modelMinX = bbox.min.x, modelMaxX = bbox.max.x;
       const modelMinZ = bbox.min.z, modelMaxZ = bbox.max.z;
       cadCenter = { x: (modelMinX + modelMaxX) / 2, z: (modelMinZ + modelMaxZ) / 2, y: bbox.max.y + 0.001 };
+      const ovRects = {};   // icon -> {x0,x1,z0,z1}
       kmz.overlays.forEach((ov) => {
         const px = (lon) => modelMinX + (lon - cb.west) / (cb.east - cb.west) * (modelMaxX - modelMinX);
         const pz = (lat) => modelMinZ + (cb.north - lat) / (cb.north - cb.south) * (modelMaxZ - modelMinZ);
@@ -2551,6 +2584,7 @@
         const z0 = pz(ov.north), z1 = pz(ov.south);
         const w = x1 - x0, d = z1 - z0;
         if (!isFinite(w) || !isFinite(d) || w <= 0 || d <= 0) return;
+        ovRects[ov.icon] = { x0, x1, z0, z1 };
         const url = "data/kmz/" + ov.icon;
         new THREE.TextureLoader().load(url, (tex) => {
           tex.encoding = THREE.sRGBEncoding;
@@ -2558,20 +2592,117 @@
           geo.rotateX(-Math.PI / 2);
           const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.6, depthWrite: false });
           const mesh = new THREE.Mesh(geo, mat);
-          // Position relative to overlay center so group scale pivots correctly.
           mesh.position.set((x0 + w/2) - cadCenter.x, 0, (z0 + d/2) - cadCenter.z);
+          mesh.renderOrder = 0;
           cadOverlayGroup.add(mesh);
           requestRender();
         });
       });
+      // Build the auto-traced cells (parented to the CAD group so they track it).
+      buildAutoCells(ovRects);
       scene.add(cadOverlayGroup);
       applyCadTransform();
       $("btn-toggle-overlay").textContent = "Hide CAD overlay";
-      toast("CAD overlay drawn — select 'CAD' target to resize/fit it");
+      toast("CAD overlay + auto-traced cells shown");
       rebuildEditTargetsForCad();
       setEditTarget("CAD");
     }
     $("btn-toggle-overlay").addEventListener("click", toggleCadOverlay);
+
+    // ---- Auto-traced CAD cells --------------------------------------------
+    // One flat quad per detected array cell, in the CAD overlay's local frame
+    // (so the CAD transform moves/scales them with the image). Clickable +
+    // populatable like piles/modules; ids are A-0001..., assignments shared.
+    let autoCellMesh = null;
+    let autoCellRecords = [];     // [{id}]
+    function buildAutoCells(ovRects) {
+      const cc = window.__cadCells;
+      if (!cc || !cc.overlays) return;
+      // Gather quads.
+      const quads = [];  // {cx,cz,hw,hh,id}
+      let seq = 0;
+      cc.overlays.forEach(o => {
+        const rect = ovRects[o.icon];
+        if (!rect) return;
+        const rw = rect.x1 - rect.x0, rd = rect.z1 - rect.z0;
+        const hw = (o.cellU * rw) * 0.5, hh = (o.cellV * rd) * 0.5;
+        o.cells.forEach(([u, v]) => {
+          seq++;
+          quads.push({
+            cx: (rect.x0 + u * rw) - cadCenter.x,
+            cz: (rect.z0 + v * rd) - cadCenter.z,
+            hw, hh, id: `A-${String(seq).padStart(4, "0")}`,
+          });
+        });
+      });
+      if (!quads.length) return;
+      autoCellRecords = quads.map(q => ({ id: q.id }));
+      const N = quads.length;
+      const pos = new Float32Array(N * 4 * 3);
+      const col = new Float32Array(N * 4 * 3);
+      const idx = new Uint32Array(N * 6);
+      const lift = 0.004;
+      for (let i = 0; i < N; i++) {
+        const q = quads[i];
+        const corners = [[-q.hw,-q.hh],[q.hw,-q.hh],[q.hw,q.hh],[-q.hw,q.hh]];
+        for (let k = 0; k < 4; k++) {
+          const b = (i*4+k)*3;
+          pos[b] = q.cx + corners[k][0]; pos[b+1] = lift; pos[b+2] = q.cz + corners[k][1];
+        }
+        const o = i*4;
+        idx[i*6+0]=o; idx[i*6+1]=o+1; idx[i*6+2]=o+2; idx[i*6+3]=o; idx[i*6+4]=o+2; idx[i*6+5]=o+3;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      geo.setIndex(new THREE.BufferAttribute(idx, 1));
+      const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide });
+      autoCellMesh = new THREE.Mesh(geo, mat);
+      autoCellMesh.frustumCulled = false;
+      autoCellMesh.renderOrder = 4;
+      cadOverlayGroup.add(autoCellMesh);
+      applyAutoCellTints();
+    }
+    const _autoMark = new THREE.Color("#fde047");
+    const _autoBase = new THREE.Color("#22d3ee");
+    function applyAutoCellTints() {
+      if (!autoCellMesh) return;
+      const col = autoCellMesh.geometry.attributes.color.array;
+      for (let i = 0; i < autoCellRecords.length; i++) {
+        const has = !!assignments[autoCellRecords[i].id];
+        const c = has ? _autoMark : _autoBase;
+        const o = i*4*3;
+        for (let k = 0; k < 4; k++) { col[o+k*3]=c.r; col[o+k*3+1]=c.g; col[o+k*3+2]=c.b; }
+      }
+      autoCellMesh.geometry.attributes.color.needsUpdate = true;
+      requestRender();
+    }
+    let autoHiIdx = -1, autoHiOrig = null;
+    function clearAutoHighlight() {
+      if (autoHiIdx < 0 || !autoCellMesh) return;
+      const col = autoCellMesh.geometry.attributes.color.array;
+      const o = autoHiIdx*4*3;
+      for (let k = 0; k < 12; k++) col[o+k] = autoHiOrig[k];
+      autoCellMesh.geometry.attributes.color.needsUpdate = true;
+      autoHiIdx = -1; autoHiOrig = null; requestRender();
+    }
+    function selectAutoCell(i) {
+      const rec = autoCellRecords[i];
+      if (!rec) return;
+      clearAutoHighlight();
+      const col = autoCellMesh.geometry.attributes.color.array;
+      const o = i*4*3;
+      autoHiOrig = col.slice(o, o+12);
+      for (let k = 0; k < 4; k++) { col[o+k*3]=1; col[o+k*3+1]=1; col[o+k*3+2]=1; }
+      autoCellMesh.geometry.attributes.color.needsUpdate = true;
+      autoHiIdx = i; requestRender();
+      currentSel = { id: rec.id, defaultSerial: rec.id, autoIdx: i };
+      selectedIndex = -1;
+      clearModuleHighlight();
+      if (pileMesh && pileMesh.userData.ring) pileMesh.userData.ring.visible = false;
+      $("info-delete-row").style.display = "none";
+      populateInfoPanel();
+    }
 
     // Toggle the module (drawing) overlay, mirroring the CAD toggle.
     let modulesHidden = false;
