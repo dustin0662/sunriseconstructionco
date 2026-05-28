@@ -681,13 +681,19 @@
       });
     }
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+    const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
     // Cap pixel ratio at 1: hi-DPI displays were paying 4x fragment cost
     // for no real benefit on a sparse-foliage terrain + 2D point markers.
     renderer.setPixelRatio(1);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.outputEncoding = THREE.sRGBEncoding;
     $("app").appendChild(renderer.domElement);
+
+    // Render-on-demand: avoid the constant 60Hz draw when nothing changes.
+    // The page idles at ~0% CPU/GPU until the user interacts.
+    let renderRequested = true;
+    function requestRender() { renderRequested = true; }
+    window.__requestRender = requestRender;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0a0a14);
@@ -1126,6 +1132,7 @@
         pos[i*3+2] = p.position.z;
       }
       pileMesh.geometry.attributes.position.needsUpdate = true;
+      requestRender();
     }
     // Settle pile Y values onto the real surface after an interactive pass.
     let settleTimer = null;
@@ -1246,6 +1253,7 @@
         col[i*3+0] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
       }
       pileMesh.geometry.attributes.color.needsUpdate = true;
+      requestRender();
     }
 
     // Apply lock state to the alignment UI.
@@ -1333,6 +1341,7 @@
       }
       pileMesh.geometry.attributes.position.needsUpdate = true;
       $("stats").textContent = `${visibleCount} / ${pileData.length} piles visible`;
+      requestRender();
     }
 
     // ---- Interaction --------------------------------------------------------
@@ -1403,6 +1412,7 @@
       if (ring) {
         ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
         ring.visible = true;
+        requestRender();
       }
     }
 
@@ -1514,7 +1524,7 @@
 
     $("info-close").addEventListener("click", () => {
       $("info").classList.remove("shown");
-      if (pileMesh && pileMesh.userData.ring) pileMesh.userData.ring.visible = false;
+      if (pileMesh && pileMesh.userData.ring) { pileMesh.userData.ring.visible = false; requestRender(); }
       selectedIndex = -1;
     });
 
@@ -1831,6 +1841,7 @@
         cadOverlayGroup.visible = !cadOverlayGroup.visible;
         $("btn-toggle-overlay").textContent = cadOverlayGroup.visible ? "Hide CAD overlay" : "Show CAD overlay";
         toast(cadOverlayGroup.visible ? "CAD overlay shown" : "CAD overlay hidden");
+        requestRender();
         return;
       }
       cadOverlayGroup = new THREE.Group();
@@ -1856,6 +1867,7 @@
           const mesh = new THREE.Mesh(geo, mat);
           mesh.position.set(x0 + w/2, yPlace, z0 + d/2);
           cadOverlayGroup.add(mesh);
+          requestRender();
         });
       });
       scene.add(cadOverlayGroup);
@@ -2078,15 +2090,26 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
+    // OrbitControls fires 'change' on every camera update (including damping
+    // settling frames). That's our signal to schedule a render.
+    controls.addEventListener("change", requestRender);
+    window.addEventListener("resize", requestRender);
+
     function animate() {
       requestAnimationFrame(animate);
-      // Pulse the ring on the selected pile
+      // Damping needs update() each frame WHILE settling so it can emit more
+      // change events. Cheap when idle.
+      controls.update();
+      // Pulse the highlight ring while it's visible — needs render each frame.
       if (pileMesh && pileMesh.userData.ring && pileMesh.userData.ring.visible) {
         const s = 1 + Math.sin(performance.now() * 0.006) * 0.12;
         pileMesh.userData.ring.scale.set(s, 1, s);
+        requestRender();
       }
-      controls.update();
-      renderer.render(scene, camera);
+      if (renderRequested) {
+        renderRequested = false;
+        renderer.render(scene, camera);
+      }
     }
     animate();
   </script>
