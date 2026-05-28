@@ -20,7 +20,8 @@ OUT = os.path.join(os.path.dirname(__file__), "..", "data", "cad_cells.json")
 
 MIN_COVER = 0.5
 MIN_COMPONENT_PX = 800       # drop array blobs smaller than this (noise)
-DEFAULT_TARGET = 23984       # fallback if modules.json missing
+# Per the stringing-plan System Summary: 708 strings x 25 modules = 17,700.
+DEFAULT_TARGET = 17700
 
 
 def array_mask(im):
@@ -61,12 +62,8 @@ def count_cells(mask, p, W, H, emit=False):
 
 def main():
     kmz = json.load(open(KMZ_JSON))
-    target = DEFAULT_TARGET
-    if os.path.exists(MODULES_JSON):
-        try:
-            target = json.load(open(MODULES_JSON))["meta"]["total"]
-        except Exception:
-            pass
+    # The drawings' System Summary is the source of truth: 17,700 modules.
+    target = int(os.environ.get("MODULE_TARGET", DEFAULT_TARGET))
     print(f"drawing module total (target): {target}")
 
     masks = []

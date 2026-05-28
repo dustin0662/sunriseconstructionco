@@ -1185,9 +1185,11 @@
       if (transform.tx || transform.tz || transform.rotDeg || transform.scale !== 1) {
         applyTransform({ persist: false });
       }
-      $("stats").textContent = moduleSet && moduleSet.meta
-        ? `${moduleSet.meta.total.toLocaleString()} modules · ${moduleSet.meta.sheets.length} sheets`
-        : `${pileData.length} piles`;
+      $("stats").textContent = (cadCells && cadCells.meta)
+        ? `${(cadCells.meta.target || cadCells.meta.total).toLocaleString()} modules · ${cadCells.meta.total.toLocaleString()} cells traced`
+        : (moduleSet && moduleSet.meta
+            ? `${moduleSet.meta.total.toLocaleString()} module rects · ${moduleSet.meta.sheets.length} sheets`
+            : `${pileData.length} piles`);
 
       $("loading").classList.add("hidden");
     })
