@@ -667,6 +667,9 @@
       <button class="btn" id="btn-toggle-overlay">Show CAD overlay</button>
     </div>
     <div class="align-buttons">
+      <button class="btn" id="btn-toggle-modules">Hide modules</button>
+    </div>
+    <div class="align-buttons">
       <button class="btn" id="btn-view-top">Top view</button>
       <button class="btn" id="btn-view-iso">Iso view</button>
     </div>
@@ -2321,6 +2324,16 @@
       setEditTarget("CAD");
     }
     $("btn-toggle-overlay").addEventListener("click", toggleCadOverlay);
+
+    // Toggle the module (drawing) overlay, mirroring the CAD toggle.
+    let modulesHidden = false;
+    $("btn-toggle-modules").addEventListener("click", () => {
+      modulesHidden = !modulesHidden;
+      if (moduleMesh) moduleMesh.visible = !modulesHidden;
+      $("btn-toggle-modules").textContent = modulesHidden ? "Show modules" : "Hide modules";
+      toast(modulesHidden ? "Module overlay hidden" : "Module overlay shown");
+      requestRender();
+    });
 
     // Add/remove a "CAD" chip in the edit-target row when the overlay is shown.
     function rebuildEditTargetsForCad() {
