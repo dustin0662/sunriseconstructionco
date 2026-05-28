@@ -1016,6 +1016,10 @@
         rayTargets,
       };
 
+      // Bake a heightmap grid once so per-pile surface lookups are O(1)
+      // instead of raycasting the 52K-vertex terrain on every transform.
+      buildHeightmap(rayTargets, bbox);
+
       // Seed records once; positions get filled in by recomputePileWorldPositions().
       pileData = data.piles.map((p) => ({
         ...p,
@@ -1217,38 +1221,80 @@
         groupCentroidsGlobal[g] = { x: tmp.x, z: tmp.z };
       }
     }
-    // True while the user is mid-drag / dragging a slider. In that state we
-    // skip the per-pile terrain raycast (the dominant cost) and use a flat
-    // mean Y so updates are O(N). When `interactive` flips back to false we
-    // settle every pile back onto the real surface in one pass.
-    let interactive = false;
-    const _rayOrigin = new THREE.Vector3();
+    // ---- Heightmap -------------------------------------------------------
+    // A coarse 2D grid of surface heights over the model's XZ bounds, baked
+    // once from the terrain's vertices. sampleHeight() is O(1), so the whole
+    // 2932-pile recompute is pure math + grid lookups — no raycasting.
+    let heightmap = null;
+    function buildHeightmap(rayTargets, bbox) {
+      const cols = 384, rows = 384;
+      const minX = bbox.min.x, minZ = bbox.min.z;
+      const w = (bbox.max.x - minX) || 1;
+      const d = (bbox.max.z - minZ) || 1;
+      const data = new Float32Array(cols * rows).fill(NaN);
+      const v = new THREE.Vector3();
+      for (const mesh of rayTargets) {
+        const pos = mesh.geometry && mesh.geometry.attributes && mesh.geometry.attributes.position;
+        if (!pos) continue;
+        mesh.updateWorldMatrix(true, false);
+        const mat = mesh.matrixWorld;
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(mat);
+          let cx = ((v.x - minX) / w * (cols - 1)) | 0;
+          let cz = ((v.z - minZ) / d * (rows - 1)) | 0;
+          if (cx < 0) cx = 0; else if (cx >= cols) cx = cols - 1;
+          if (cz < 0) cz = 0; else if (cz >= rows) cz = rows - 1;
+          const idx = cz * cols + cx;
+          // Keep the topmost surface (handles slight overlaps / overhangs).
+          if (Number.isNaN(data[idx]) || v.y > data[idx]) data[idx] = v.y;
+        }
+      }
+      // Fill empty cells by averaging known neighbors over a few passes.
+      for (let pass = 0; pass < 12; pass++) {
+        let filled = 0;
+        const copy = data.slice();
+        for (let z = 0; z < rows; z++) {
+          for (let x = 0; x < cols; x++) {
+            const idx = z * cols + x;
+            if (!Number.isNaN(copy[idx])) continue;
+            let sum = 0, n = 0;
+            for (let dz = -1; dz <= 1; dz++) {
+              const nz = z + dz; if (nz < 0 || nz >= rows) continue;
+              for (let dx = -1; dx <= 1; dx++) {
+                const nx = x + dx; if (nx < 0 || nx >= cols) continue;
+                const nv = copy[nz * cols + nx];
+                if (!Number.isNaN(nv)) { sum += nv; n++; }
+              }
+            }
+            if (n) { data[idx] = sum / n; filled++; }
+          }
+        }
+        if (!filled) break;
+      }
+      const fallback = bbox.min.y + (bbox.max.y - bbox.min.y) * 0.5;
+      for (let i = 0; i < data.length; i++) if (Number.isNaN(data[i])) data[i] = fallback;
+      heightmap = { minX, minZ, w, d, cols, rows, data, fallback };
+    }
+    function sampleHeight(x, z) {
+      const hm = heightmap;
+      if (!hm) return 0;
+      let cx = Math.round((x - hm.minX) / hm.w * (hm.cols - 1));
+      let cz = Math.round((z - hm.minZ) / hm.d * (hm.rows - 1));
+      if (cx < 0) cx = 0; else if (cx >= hm.cols) cx = hm.cols - 1;
+      if (cz < 0) cz = 0; else if (cz >= hm.rows) cz = hm.rows - 1;
+      return hm.data[cz * hm.cols + cx];
+    }
+
     function recomputePileWorldPositions() {
       if (!layoutCtx || !pileData.length) return;
       refreshGlobalTrigCache();
       refreshGroupTrigCache();
       recomputeGroupCentroidsGlobal();
       const out = _xzOut;
-      if (interactive) {
-        const flatY = (layoutCtx.bbox.min.y + layoutCtx.bbox.max.y) / 2;
-        for (let i = 0; i < pileData.length; i++) {
-          const p = pileData[i];
-          pdfToWorldXZ(p.srcX, p.srcY, p.group, out);
-          p.position.set(out.x, flatY, out.z);
-        }
-        return;
-      }
-      const yAbove = layoutCtx.bbox.max.y + 0.5;
-      const fallbackY = layoutCtx.bbox.min.y + (layoutCtx.bbox.max.y - layoutCtx.bbox.min.y) * 0.5;
-      const rayTargets = layoutCtx.rayTargets;
       for (let i = 0; i < pileData.length; i++) {
         const p = pileData[i];
         pdfToWorldXZ(p.srcX, p.srcY, p.group, out);
-        _rayOrigin.set(out.x, yAbove, out.z);
-        _downRay.set(_rayOrigin, _downDir);
-        const hits = _downRay.intersectObjects(rayTargets, false);
-        const y = hits.length ? hits[0].point.y : fallbackY;
-        p.position.set(out.x, y, out.z);
+        p.position.set(out.x, sampleHeight(out.x, out.z), out.z);
       }
     }
     // Push the current pileData[].position into the InstancedMesh + stalk geo.
@@ -1269,24 +1315,9 @@
       pileMesh.geometry.attributes.position.needsUpdate = true;
       requestRender();
     }
-    // Settle pile Y values onto the real surface after an interactive pass.
-    let settleTimer = null;
-    function scheduleSurfaceSettle() {
-      if (settleTimer) clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => {
-        settleTimer = null;
-        interactive = false;
-        recomputePileWorldPositions();
-        rebuildPileMeshFromPositions();
-        if (selectedIndex >= 0 && selectedIndex < pileData.length) {
-          const p = pileData[selectedIndex];
-          const ring = pileMesh && pileMesh.userData && pileMesh.userData.ring;
-          if (ring && ring.visible) ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
-        }
-      }, 120);
-    }
     function applyTransform({ persist = true, interactive: int = false } = {}) {
-      interactive = !!int;
+      // Heightmap lookups make recompute O(1)/pile, so there's no longer an
+      // interactive vs settle distinction — every pass uses the real surface.
       recomputePileWorldPositions();
       rebuildPileMeshFromPositions();
       if (selectedIndex >= 0 && selectedIndex < pileData.length) {
@@ -1294,13 +1325,7 @@
         const ring = pileMesh && pileMesh.userData && pileMesh.userData.ring;
         if (ring && ring.visible) ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
       }
-      if (interactive) {
-        scheduleSurfaceSettle();
-      } else {
-        // Only sync the slider labels at rest. During an interactive drag we
-        // skip this entirely to avoid 60Hz DOM input writes.
-        updateAlignSliderLabels();
-      }
+      if (!int) updateAlignSliderLabels();
       if (persist) saveTransform();
     }
     // rAF-coalesced transform apply: collapses multiple pointer-move /
@@ -1653,10 +1678,6 @@
       if (moved) suppressClickUntil = performance.now() + 300;
       dragState = null;
       controls.enabled = true;
-      // Settle every pile back onto the real surface now that the drag ended.
-      interactive = false;
-      recomputePileWorldPositions();
-      rebuildPileMeshFromPositions();
       syncAlignUIFromTransform();
     }
     renderer.domElement.addEventListener("pointerup", endDrag);
