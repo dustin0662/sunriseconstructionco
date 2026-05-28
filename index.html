@@ -344,6 +344,7 @@
     border-color: rgba(59,130,246,0.55);
     color: #cfe3ff;
   }
+  body.trace-cells #app canvas { cursor: crosshair !important; }
   body.drag-mode-translate #app canvas { cursor: move !important; }
   body.drag-mode-rotate    #app canvas { cursor: ew-resize !important; }
   body.drag-mode-scale     #app canvas { cursor: ns-resize !important; }
@@ -670,6 +671,9 @@
       <button class="btn" id="btn-toggle-modules">Hide modules</button>
     </div>
     <div class="align-buttons">
+      <button class="btn primary" id="btn-trace-cells">✛ Trace cells</button>
+    </div>
+    <div class="align-buttons">
       <button class="btn" id="btn-view-top">Top view</button>
       <button class="btn" id="btn-view-iso">Iso view</button>
     </div>
@@ -717,6 +721,9 @@
     <div class="button-row admin-only">
       <button class="btn primary" id="info-save">Save</button>
       <button class="btn danger" id="info-reset">Reset</button>
+    </div>
+    <div class="button-row admin-only" id="info-delete-row" style="display:none">
+      <button class="btn danger" id="info-delete" style="flex:1">Delete this cell</button>
     </div>
   </div>
 
@@ -1159,6 +1166,8 @@
         buildModuleOverlay(moduleSet);
       }
       applyOverlayMode();
+      // -- Restore any previously traced cells.
+      buildPlacedGroup();
 
       // -- UI panels
       buildGroupUI(data.meta);
@@ -1605,6 +1614,112 @@
       requestRender();
     }
 
+    // ---- Traced cells -----------------------------------------------------
+    // User-placed, clickable cells drawn directly over the CAD/terrain. Each
+    // is a flat quad on the surface, selectable and populatable like a pile.
+    const PLACED_KEY = "midway_placed_cells_v1";
+    let placedCells = [];        // [{id, x, z}]  (world XZ; Y from heightmap)
+    let placedGroup = null;
+    let placedSize = 0.03;       // world half-size of a cell quad
+    let traceMode = false;
+    let placedSeq = 0;
+    try {
+      const raw = localStorage.getItem(PLACED_KEY);
+      if (raw) { placedCells = JSON.parse(raw) || []; }
+    } catch (_) { placedCells = []; }
+    function savePlacedCells() { try { localStorage.setItem(PLACED_KEY, JSON.stringify(placedCells)); } catch (_) {} }
+
+    function placedCellColor(rec) {
+      return assignments[rec.id] ? "#fde047" : "#ffffff";
+    }
+    function makePlacedMesh(rec) {
+      const g = new THREE.PlaneGeometry(placedSize * 2, placedSize * 2);
+      g.rotateX(-Math.PI / 2);
+      const m = new THREE.MeshBasicMaterial({
+        color: placedCellColor(rec), transparent: true, opacity: 0.55,
+        depthWrite: false, side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(g, m);
+      const y = sampleHeight(rec.x, rec.z) + 0.006;
+      mesh.position.set(rec.x, y, rec.z);
+      mesh.renderOrder = 3;
+      mesh.userData.cellId = rec.id;
+      // thin border for visibility
+      const eg = new THREE.EdgesGeometry(g);
+      const line = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.7 }));
+      mesh.add(line);
+      return mesh;
+    }
+    function buildPlacedGroup() {
+      if (placedGroup) { scene.remove(placedGroup); }
+      placedGroup = new THREE.Group();
+      placedGroup.name = "Traced cells";
+      placedSize = Math.max(0.02, (layoutCtx ? (layoutCtx.bbox.max.x - layoutCtx.bbox.min.x) : 5) * 0.006);
+      placedSeq = placedCells.reduce((mx, c) => Math.max(mx, parseInt((c.id||"").replace(/\D/g,"")) || 0), 0);
+      placedCells.forEach(rec => placedGroup.add(makePlacedMesh(rec)));
+      scene.add(placedGroup);
+      requestRender();
+    }
+    function refreshPlacedColors() {
+      if (!placedGroup) return;
+      placedGroup.children.forEach(mesh => {
+        const rec = placedCells.find(c => c.id === mesh.userData.cellId);
+        if (rec) mesh.material.color.set(placedCellColor(rec));
+      });
+      requestRender();
+    }
+    function addPlacedCell(x, z) {
+      placedSeq++;
+      const rec = { id: `C-${String(placedSeq).padStart(4, "0")}`, x, z };
+      placedCells.push(rec);
+      savePlacedCells();
+      if (!placedGroup) buildPlacedGroup();
+      else placedGroup.add(makePlacedMesh(rec));
+      requestRender();
+      return rec;
+    }
+    function deletePlacedCell(id) {
+      const i = placedCells.findIndex(c => c.id === id);
+      if (i < 0) return;
+      placedCells.splice(i, 1);
+      savePlacedCells();
+      if (assignments[id]) { delete assignments[id]; saveAssignments(); updateAssignedCount(); }
+      if (placedGroup) {
+        const mesh = placedGroup.children.find(m => m.userData.cellId === id);
+        if (mesh) placedGroup.remove(mesh);
+      }
+      requestRender();
+    }
+    function selectPlacedCell(id) {
+      const rec = placedCells.find(c => c.id === id);
+      if (!rec) return;
+      currentSel = { id: rec.id, defaultSerial: rec.id, placed: true };
+      selectedIndex = -1;
+      clearModuleHighlight();
+      if (pileMesh && pileMesh.userData.ring) pileMesh.userData.ring.visible = false;
+      populateInfoPanel();
+      $("info-delete-row").style.display = "";
+    }
+    function setTraceMode(on) {
+      traceMode = on;
+      document.body.classList.toggle("trace-cells", traceMode);
+      const b = $("btn-trace-cells");
+      b.classList.toggle("primary", !traceMode);
+      b.textContent = traceMode ? "✓ Done tracing" : "✛ Trace cells";
+      toast(traceMode ? "Trace mode: click on the CAD to drop cells" : "Trace mode off");
+    }
+    $("btn-trace-cells").addEventListener("click", () => setTraceMode(!traceMode));
+    $("info-delete").addEventListener("click", () => {
+      if (currentSel && currentSel.placed) {
+        const id = currentSel.id;
+        deletePlacedCell(id);
+        $("info").classList.remove("shown");
+        $("info-delete-row").style.display = "none";
+        currentSel = null;
+        toast("Cell deleted");
+      }
+    });
+
     // Edit-target buttons. In dots mode: All + groups. In modules mode: the
     // stringing sheets (E120-E123), each an independent layer.
     function buildEditTargetUI() {
@@ -1875,6 +1990,7 @@
       }
       $("serial-input").value = a.serial || "";
       $("serial-input").placeholder = defaultSerial;
+      $("info-delete-row").style.display = (currentSel.placed && !READONLY) ? "" : "none";
       $("info").classList.add("shown");
       if (window.matchMedia("(max-width: 820px), (pointer: coarse)").matches) {
         const bd = $("sheet-backdrop");
@@ -1901,6 +2017,7 @@
         applyModuleTints();
         highlightModule(currentSel.moduleIdx);
       }
+      if (currentSel && currentSel.placed) refreshPlacedColors();
       if (currentSel) populateInfoPanel();
       updateAssignedCount();
     }
@@ -1913,18 +2030,37 @@
       pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
       pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
-      // Prefer module cells (the visible overlay) when shown.
+
+      // Trace mode: drop a new cell where the click hits the terrain.
+      if (traceMode) {
+        const hits = raycaster.intersectObjects(layoutCtx.rayTargets, false);
+        if (hits.length) {
+          const rec = addPlacedCell(hits[0].point.x, hits[0].point.z);
+          selectPlacedCell(rec.id);
+        }
+        return;
+      }
+
+      // Existing traced cells take priority (they're the populatable markers).
+      if (placedGroup && placedGroup.children.length) {
+        const phits = raycaster.intersectObjects(placedGroup.children, false);
+        if (phits.length) {
+          const id = phits[0].object.userData.cellId;
+          if (id) { selectPlacedCell(id); return; }
+        }
+      }
+      // Then module cells (the visible overlay) when shown.
       if (moduleMesh && moduleMesh.visible) {
         const mhits = raycaster.intersectObject(moduleMesh);
         if (mhits.length) {
           const faceIndex = mhits[0].faceIndex;
-          if (faceIndex != null) { selectModule(Math.floor(faceIndex / 2)); return; }
+          if (faceIndex != null) { $("info-delete-row").style.display = "none"; selectModule(Math.floor(faceIndex / 2)); return; }
         }
       }
       if (pileMesh && pileMesh.visible) {
         const hits = raycaster.intersectObject(pileMesh);
         const hit = hits.find(h => visibleMask[h.index]);
-        if (hit) selectPile(hit.index);
+        if (hit) { $("info-delete-row").style.display = "none"; selectPile(hit.index); }
       }
     });
 
