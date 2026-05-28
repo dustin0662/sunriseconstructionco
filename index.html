@@ -1433,7 +1433,12 @@
 
     // ---- Module overlay (flat PV-module quads) -----------------------------
     function buildModuleOverlay(set) {
-      moduleRecords = set.modules.map(m => ({ s: m[0], x: m[1], y: m[2] }));
+      const seq = {};
+      moduleRecords = set.modules.map(m => {
+        const sid = (set.meta.sheets[m[0]] || {}).id || ("S" + m[0]);
+        seq[sid] = (seq[sid] || 0) + 1;
+        return { s: m[0], x: m[1], y: m[2], id: `${sid}-${String(seq[sid]).padStart(4, "0")}` };
+      });
       // Per-sheet layout context: fit each sheet's module bbox into the model
       // footprint (preserving aspect), so an un-aligned sheet still shows up
       // sensibly. The user then nudges each sheet with the transform tools.
@@ -1483,6 +1488,7 @@
       moduleMesh.renderOrder = 2;
       scene.add(moduleMesh);
       recomputeModulePositions();
+      applyModuleTints();   // mark any already-assigned cells
     }
 
     // Transform a module's PDF point into world XZ via its sheet's transform.
@@ -1532,6 +1538,65 @@
       moduleMesh.geometry.computeBoundingSphere();
       requestRender();
     }
+    // Module selection + highlight (brighten the picked cell's 4 vertices).
+    let moduleHighlightIdx = -1;
+    let moduleHighlightOrig = null;
+    function clearModuleHighlight() {
+      if (moduleHighlightIdx < 0 || !moduleMesh) return;
+      const col = moduleMesh.geometry.attributes.color.array;
+      const o = moduleHighlightIdx * 4 * 3;
+      for (let k = 0; k < 12; k++) col[o + k] = moduleHighlightOrig[k];
+      moduleMesh.geometry.attributes.color.needsUpdate = true;
+      moduleHighlightIdx = -1; moduleHighlightOrig = null;
+      requestRender();
+    }
+    function highlightModule(idx) {
+      if (!moduleMesh) return;
+      clearModuleHighlight();
+      const col = moduleMesh.geometry.attributes.color.array;
+      const o = idx * 4 * 3;
+      moduleHighlightOrig = col.slice(o, o + 12);
+      for (let k = 0; k < 4; k++) {       // bright white highlight
+        col[o + k*3 + 0] = 1; col[o + k*3 + 1] = 1; col[o + k*3 + 2] = 1;
+      }
+      moduleMesh.geometry.attributes.color.needsUpdate = true;
+      moduleHighlightIdx = idx;
+      requestRender();
+    }
+    function selectModule(idx) {
+      const m = moduleRecords[idx];
+      if (!m) return;
+      currentSel = { id: m.id, defaultSerial: m.id, moduleIdx: idx };
+      selectedIndex = -1;
+      if (pileMesh && pileMesh.userData.ring) pileMesh.userData.ring.visible = false;
+      highlightModule(idx);
+      populateInfoPanel();
+    }
+    // Tint each module: sheet color normally, marker color if it has a
+    // serial/photo assigned — so completed cells stand out.
+    const _markColor = new THREE.Color("#fde047");  // amber-yellow = has data
+    function applyModuleTints() {
+      if (!moduleMesh) return;
+      const col = moduleMesh.geometry.attributes.color.array;
+      const sheetCol = {};
+      const c = new THREE.Color();
+      for (let i = 0; i < moduleRecords.length; i++) {
+        const m = moduleRecords[i];
+        const has = !!assignments[m.id];
+        let r, g, b;
+        if (has) { r = _markColor.r; g = _markColor.g; b = _markColor.b; }
+        else {
+          const sid = moduleSheets[m.s].id;
+          if (!sheetCol[sid]) sheetCol[sid] = new THREE.Color(SHEET_COLORS[sid] || "#38bdf8");
+          r = sheetCol[sid].r; g = sheetCol[sid].g; b = sheetCol[sid].b;
+        }
+        const o = i * 4 * 3;
+        for (let k = 0; k < 4; k++) { col[o+k*3]=r; col[o+k*3+1]=g; col[o+k*3+2]=b; }
+      }
+      moduleMesh.geometry.attributes.color.needsUpdate = true;
+      requestRender();
+    }
+
     function applyOverlayMode() {
       if (pileMesh) pileMesh.visible = overlayMode === "dots";
       if (pileMesh && pileMesh.userData.stalks) pileMesh.userData.stalks.visible = overlayMode === "dots";
@@ -1753,19 +1818,20 @@
     }
     renderer.domElement.addEventListener("pointermove", onPointerMove);
 
-    function selectPile(index) {
-      selectedIndex = index;
-      const p = pileData[index];
-      const a = assignments[p.pileId] || {};
-      $("info-serial").textContent = a.serial || p.serial;
-      $("info-pid").textContent = p.pileId;
-      // Photo
+    // Generic current selection: { id, defaultSerial }. Set by selectPile or
+    // selectModule; the admin/info handlers act on currentSel.id.
+    let currentSel = null;
+    function populateInfoPanel() {
+      if (!currentSel) return;
+      const { id, defaultSerial } = currentSel;
+      const a = assignments[id] || {};
+      $("info-serial").textContent = a.serial || defaultSerial;
+      $("info-pid").textContent = id;
       const photoWrap = $("info-photo-wrap");
       photoWrap.innerHTML = "";
       if (a.photo) {
         const img = document.createElement("img");
-        img.src = a.photo;
-        img.alt = p.pileId;
+        img.src = a.photo; img.alt = id;
         photoWrap.appendChild(img);
         $("info-photo-tag").style.display = "";
       } else {
@@ -1775,18 +1841,20 @@
         photoWrap.appendChild(ph);
         $("info-photo-tag").style.display = "none";
       }
-      // Serial input value
       $("serial-input").value = a.serial || "";
-      $("serial-input").placeholder = p.serial;
-
+      $("serial-input").placeholder = defaultSerial;
       $("info").classList.add("shown");
-      // On touch layouts, dim the backdrop behind the info sheet.
       if (window.matchMedia("(max-width: 820px), (pointer: coarse)").matches) {
         const bd = $("sheet-backdrop");
         if (bd) bd.classList.add("shown");
       }
+    }
 
-      // Move highlight ring to selected pile
+    function selectPile(index) {
+      selectedIndex = index;
+      const p = pileData[index];
+      currentSel = { id: p.pileId, defaultSerial: p.serial };
+      populateInfoPanel();
       const ring = pileMesh.userData.ring;
       if (ring) {
         ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
@@ -1796,12 +1864,16 @@
     }
 
     function refreshSelected() {
-      if (selectedIndex >= 0) selectPile(selectedIndex);
+      if (currentSel && currentSel.moduleIdx != null) {
+        moduleHighlightIdx = -1; moduleHighlightOrig = null;  // discard stale
+        applyModuleTints();
+        highlightModule(currentSel.moduleIdx);
+      }
+      if (currentSel) populateInfoPanel();
       updateAssignedCount();
     }
 
     renderer.domElement.addEventListener("click", (e) => {
-      if (!pileMesh) return;
       if (performance.now() < suppressClickUntil) return;
       // Anchor mode consumes clicks first.
       if (anchor.active && handleAnchorClick(e)) return;
@@ -1809,9 +1881,19 @@
       pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
       pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
-      const hits = raycaster.intersectObject(pileMesh);
-      const hit = hits.find(h => visibleMask[h.index]);
-      if (hit) selectPile(hit.index);
+      // Prefer module cells (the visible overlay) when shown.
+      if (moduleMesh && moduleMesh.visible) {
+        const mhits = raycaster.intersectObject(moduleMesh);
+        if (mhits.length) {
+          const faceIndex = mhits[0].faceIndex;
+          if (faceIndex != null) { selectModule(Math.floor(faceIndex / 2)); return; }
+        }
+      }
+      if (pileMesh && pileMesh.visible) {
+        const hits = raycaster.intersectObject(pileMesh);
+        const hit = hits.find(h => visibleMask[h.index]);
+        if (hit) selectPile(hit.index);
+      }
     });
 
     // Escape exits anchor mode + drag mode.
@@ -1907,7 +1989,9 @@
     $("info-close").addEventListener("click", () => {
       $("info").classList.remove("shown");
       if (pileMesh && pileMesh.userData.ring) { pileMesh.userData.ring.visible = false; requestRender(); }
+      clearModuleHighlight();
       selectedIndex = -1;
+      currentSel = null;
     });
 
     // ---- Admin edit handlers -----------------------------------------------
@@ -1916,14 +2000,14 @@
     $("photo-input").addEventListener("change", async (e) => {
       if (READONLY) return;
       const file = e.target.files && e.target.files[0];
-      if (!file || selectedIndex < 0) return;
+      if (!file || !currentSel) return;
       try {
         const dataURL = await fileToResizedDataURL(file, 800, 0.78);
-        const p = pileData[selectedIndex];
-        const a = assignments[p.pileId] || {};
+        const id = currentSel.id;
+        const a = assignments[id] || {};
         a.photo = dataURL;
         a.updatedAt = Date.now();
-        assignments[p.pileId] = a;
+        assignments[id] = a;
         saveAssignments();
         refreshSelected();
         toast("Photo saved");
@@ -1935,12 +2019,12 @@
     });
 
     $("photo-clear-btn").addEventListener("click", () => {
-      if (READONLY || selectedIndex < 0) return;
-      const p = pileData[selectedIndex];
-      const a = assignments[p.pileId];
+      if (READONLY || !currentSel) return;
+      const id = currentSel.id;
+      const a = assignments[id];
       if (a && a.photo) {
         delete a.photo;
-        if (!a.serial) delete assignments[p.pileId];
+        if (!a.serial) delete assignments[id];
         else a.updatedAt = Date.now();
         saveAssignments();
         refreshSelected();
@@ -1949,28 +2033,24 @@
     });
 
     $("info-save").addEventListener("click", () => {
-      if (READONLY || selectedIndex < 0) return;
-      const p = pileData[selectedIndex];
+      if (READONLY || !currentSel) return;
+      const id = currentSel.id, def = currentSel.defaultSerial;
       const sv = $("serial-input").value.trim();
-      const a = assignments[p.pileId] || {};
-      if (sv && sv !== p.serial) {
-        a.serial = sv;
-      } else {
-        delete a.serial;
-      }
+      const a = assignments[id] || {};
+      if (sv && sv !== def) a.serial = sv; else delete a.serial;
       a.updatedAt = Date.now();
-      if (!a.serial && !a.photo) delete assignments[p.pileId];
-      else assignments[p.pileId] = a;
+      if (!a.serial && !a.photo) delete assignments[id];
+      else assignments[id] = a;
       saveAssignments();
       refreshSelected();
       toast("Saved");
     });
 
     $("info-reset").addEventListener("click", () => {
-      if (READONLY || selectedIndex < 0) return;
-      const p = pileData[selectedIndex];
-      if (assignments[p.pileId]) {
-        delete assignments[p.pileId];
+      if (READONLY || !currentSel) return;
+      const id = currentSel.id;
+      if (assignments[id]) {
+        delete assignments[id];
         saveAssignments();
         refreshSelected();
         toast("Reset to defaults");
