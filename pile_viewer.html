@@ -1370,6 +1370,13 @@
       requestRender();
     }
     function applyTransform({ persist = true, interactive: int = false } = {}) {
+      // CAD overlay layer: transform the draped image group directly.
+      if (editTarget === "CAD") {
+        applyCadTransform();
+        if (!int) updateAlignSliderLabels();
+        if (persist) saveCadTransform();
+        return;
+      }
       // Heightmap lookups make recompute O(1)/pile, so there's no longer an
       // interactive vs settle distinction — every pass uses the real surface.
       if (overlayMode === "modules") {
@@ -1400,6 +1407,13 @@
       });
     }
     function resetTransform() {
+      if (editTarget === "CAD") {
+        cadTransform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, stretchX: 1, stretchZ: 1, flipX: 1, flipZ: 1 };
+        saveCadTransform();
+        applyCadTransform();
+        syncAlignUIFromTransform();
+        return;
+      }
       if (overlayMode === "modules") {
         delete sheetTransforms[editTarget];
         ensureSheetT(editTarget);  // reset to identity defaults
@@ -1536,8 +1550,8 @@
           b.innerHTML = `<span class="dot" style="background:${SHEET_COLORS[sh.id] || '#38bdf8'}"></span>${sh.id}`;
           container.appendChild(b);
         });
-        // Default edit target to first sheet if current isn't a sheet.
-        if (!moduleSheets.some(s => s.id === editTarget)) {
+        // Default edit target to first sheet if current isn't a sheet/CAD.
+        if (editTarget !== "CAD" && !moduleSheets.some(s => s.id === editTarget)) {
           editTarget = moduleSheets.length ? moduleSheets[0].id : "ALL";
         }
       } else {
@@ -1555,7 +1569,15 @@
           b.innerHTML = `<span class="dot" style="background:${GROUP_COLORS[g] || '#fff'}"></span>${g}`;
           container.appendChild(b);
         });
-        if (editTarget !== "ALL" && !groupCentroidsPDF[editTarget]) editTarget = "ALL";
+        if (editTarget !== "ALL" && editTarget !== "CAD" && !groupCentroidsPDF[editTarget]) editTarget = "ALL";
+      }
+      // CAD overlay chip (only when the overlay is currently shown).
+      if (cadOverlayGroup && cadOverlayGroup.visible) {
+        const b = document.createElement("button");
+        b.className = "target-btn";
+        b.dataset.target = "CAD";
+        b.innerHTML = `<span class="dot" style="background:#e5e7eb"></span>CAD`;
+        container.appendChild(b);
       }
       container.querySelectorAll(".target-btn").forEach(b => {
         b.addEventListener("click", () => setEditTarget(b.dataset.target));
@@ -1839,9 +1861,11 @@
     });
     renderer.domElement.addEventListener("pointermove", (e) => {
       if (!dragState) return;
-      const t = dragState.mode2 === "modules"
-        ? ensureSheetT(dragState.target)
-        : (dragState.target === "ALL" ? transform : ensureGT(dragState.target));
+      const t = dragState.target === "CAD"
+        ? ensureCadT()
+        : (dragState.mode2 === "modules"
+            ? ensureSheetT(dragState.target)
+            : (dragState.target === "ALL" ? transform : ensureGT(dragState.target)));
       if (dragState.mode === "translate") {
         const w = pointerToGroundXZ(e, dragState.planeY);
         if (!w) return;
@@ -1863,7 +1887,8 @@
     function endDrag(e) {
       if (!dragState) return;
       try { renderer.domElement.releasePointerCapture(e.pointerId); } catch (_) {}
-      if (dragState.mode2 === "modules") saveSheetTransforms();
+      if (dragState.target === "CAD") saveCadTransform();
+      else if (dragState.mode2 === "modules") saveSheetTransforms();
       else if (dragState.target === "ALL") saveTransform();
       else saveGroupTransforms();
       // Block the click that fires immediately after a drag-up.
@@ -2030,13 +2055,15 @@
       $("align-stretchx-num").value = (t.stretchX === undefined ? 1 : t.stretchX).toFixed(3);
       $("align-stretchz-num").value = (t.stretchZ === undefined ? 1 : t.stretchZ).toFixed(3);
     }
-    // Returns the active transform object (sheet / global / per-group).
+    // Returns the active transform object (CAD / sheet / global / per-group).
     function activeTransform() {
+      if (editTarget === "CAD") return ensureCadT();
       if (overlayMode === "modules") return ensureSheetT(editTarget);
       return editTarget === "ALL" ? transform : ensureGT(editTarget);
     }
     function persistActive() {
-      if (overlayMode === "modules") saveSheetTransforms();
+      if (editTarget === "CAD") saveCadTransform();
+      else if (overlayMode === "modules") saveSheetTransforms();
       else if (editTarget === "ALL") saveTransform();
       else saveGroupTransforms();
     }
@@ -2078,7 +2105,7 @@
     $("btn-flip-x").addEventListener("click", () => {
       if (layoutLocked) return;
       const t = activeTransform();
-      if (overlayMode === "modules") {
+      if (editTarget === "CAD" || overlayMode === "modules") {
         t.flipX = (t.flipX || 1) * -1;
       } else if (editTarget === "ALL") {
         t.geoStretchX = (t.geoStretchX || 1) * -1;
@@ -2092,7 +2119,7 @@
     $("btn-flip-z").addEventListener("click", () => {
       if (layoutLocked) return;
       const t = activeTransform();
-      if (overlayMode === "modules") {
+      if (editTarget === "CAD" || overlayMode === "modules") {
         t.flipZ = (t.flipZ || 1) * -1;
       } else if (editTarget === "ALL") {
         t.geoStretchZ = (t.geoStretchZ || 1) * -1;
@@ -2215,6 +2242,30 @@
     // positions. The model's XZ bbox is treated as the combined overlay
     // bbox, so each overlay gets a sub-rectangle inside the model's
     // footprint based on its own lat/lon corners.
+    // CAD overlay transform — lets the user resize/fit the draped KMZ image
+    // to the model. Applied to the whole overlay group (scale around center).
+    const CAD_TRANSFORM_KEY = "midway_cad_transform_v1";
+    let cadTransform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, stretchX: 1, stretchZ: 1, flipX: 1, flipZ: 1 };
+    try {
+      const raw = localStorage.getItem(CAD_TRANSFORM_KEY);
+      if (raw) cadTransform = { ...cadTransform, ...(JSON.parse(raw) || {}) };
+    } catch (_) {}
+    function ensureCadT() { return cadTransform; }
+    function saveCadTransform() { try { localStorage.setItem(CAD_TRANSFORM_KEY, JSON.stringify(cadTransform)); } catch (_) {} }
+    let cadCenter = { x: 0, z: 0, y: 0 };
+    function applyCadTransform() {
+      if (!cadOverlayGroup) return;
+      const t = cadTransform;
+      cadOverlayGroup.position.set(cadCenter.x + (t.tx || 0), cadCenter.y, cadCenter.z + (t.tz || 0));
+      cadOverlayGroup.scale.set(
+        (t.scale || 1) * (t.stretchX || 1) * (t.flipX || 1),
+        1,
+        (t.scale || 1) * (t.stretchZ || 1) * (t.flipZ || 1),
+      );
+      cadOverlayGroup.rotation.y = -(t.rotDeg || 0) * Math.PI / 180;
+      requestRender();
+    }
+
     let cadOverlayGroup = null;
     function toggleCadOverlay() {
       const kmz = window.__kmz;
@@ -2225,7 +2276,13 @@
       if (cadOverlayGroup) {
         cadOverlayGroup.visible = !cadOverlayGroup.visible;
         $("btn-toggle-overlay").textContent = cadOverlayGroup.visible ? "Hide CAD overlay" : "Show CAD overlay";
-        toast(cadOverlayGroup.visible ? "CAD overlay shown" : "CAD overlay hidden");
+        toast(cadOverlayGroup.visible ? "CAD overlay shown — select 'CAD' to resize it" : "CAD overlay hidden");
+        if (!cadOverlayGroup.visible && editTarget === "CAD") {
+          editTarget = moduleSheets.length ? moduleSheets[0].id : "ALL";
+        }
+        rebuildEditTargetsForCad();
+        if (cadOverlayGroup.visible) setEditTarget("CAD");
+        else { refreshEditTargetActive(); syncAlignUIFromTransform(); }
         requestRender();
         return;
       }
@@ -2235,7 +2292,7 @@
       const bbox = layoutCtx.bbox;
       const modelMinX = bbox.min.x, modelMaxX = bbox.max.x;
       const modelMinZ = bbox.min.z, modelMaxZ = bbox.max.z;
-      const yPlace = bbox.max.y + 0.001;
+      cadCenter = { x: (modelMinX + modelMaxX) / 2, z: (modelMinZ + modelMaxZ) / 2, y: bbox.max.y + 0.001 };
       kmz.overlays.forEach((ov) => {
         const px = (lon) => modelMinX + (lon - cb.west) / (cb.east - cb.west) * (modelMaxX - modelMinX);
         const pz = (lat) => modelMinZ + (cb.north - lat) / (cb.north - cb.south) * (modelMaxZ - modelMinZ);
@@ -2250,16 +2307,25 @@
           geo.rotateX(-Math.PI / 2);
           const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.6, depthWrite: false });
           const mesh = new THREE.Mesh(geo, mat);
-          mesh.position.set(x0 + w/2, yPlace, z0 + d/2);
+          // Position relative to overlay center so group scale pivots correctly.
+          mesh.position.set((x0 + w/2) - cadCenter.x, 0, (z0 + d/2) - cadCenter.z);
           cadOverlayGroup.add(mesh);
           requestRender();
         });
       });
       scene.add(cadOverlayGroup);
+      applyCadTransform();
       $("btn-toggle-overlay").textContent = "Hide CAD overlay";
-      toast("CAD overlay drawn from KMZ");
+      toast("CAD overlay drawn — select 'CAD' target to resize/fit it");
+      rebuildEditTargetsForCad();
+      setEditTarget("CAD");
     }
     $("btn-toggle-overlay").addEventListener("click", toggleCadOverlay);
+
+    // Add/remove a "CAD" chip in the edit-target row when the overlay is shown.
+    function rebuildEditTargetsForCad() {
+      buildEditTargetUI();
+    }
 
     // -- Preset camera views --
     function tweenCamera(toPos, toTarget, ms = 600) {
