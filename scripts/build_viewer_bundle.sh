@@ -14,6 +14,7 @@ cp "$ROOT/pile_viewer.html"                       "$OUT/index.html"
 cp "$ROOT/favicon.svg"                            "$OUT/favicon.svg"
 cp "$ROOT/models/midway.glb"                      "$OUT/models/"
 cp "$ROOT/data/piles.json"                        "$OUT/data/"
+cp "$ROOT/data/modules.json"                      "$OUT/data/" 2>/dev/null || true
 cp "$ROOT/data/kmz_reference.json"                "$OUT/data/"
 cp "$ROOT/data/kmz/files/"*.JPG                   "$OUT/data/kmz/files/"
 cp "$ROOT/assets/three.module-C7ia6f3T.js"        "$OUT/assets/"
