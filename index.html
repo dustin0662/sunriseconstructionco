@@ -1481,7 +1481,7 @@
       geo.setIndex(new THREE.BufferAttribute(indices, 1));
       const mat = new THREE.MeshBasicMaterial({
         vertexColors: true, side: THREE.DoubleSide,
-        transparent: true, opacity: 0.85, depthWrite: false,
+        transparent: true, opacity: 0.95, depthWrite: false,
       });
       moduleMesh = new THREE.Mesh(geo, mat);
       moduleMesh.frustumCulled = false;
@@ -1786,35 +1786,67 @@
     // ---- Interaction --------------------------------------------------------
     let hoverIndex = -1;
 
+    let _lastHover = 0;
     function onPointerMove(e) {
-      if (!pileMesh) return;
+      if (dragState || (anchor && anchor.active)) return;
+      const now = performance.now();
+      if (now - _lastHover < 40) return;   // throttle hover-picking ~25Hz
+      _lastHover = now;
       const r = renderer.domElement.getBoundingClientRect();
       pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
       pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
-      const hits = raycaster.intersectObject(pileMesh);
-      const hit = hits.find(h => visibleMask[h.index]);
-      if (hit) {
-        const idx = hit.index;
-        if (idx !== hoverIndex) {
-          hoverIndex = idx;
+      const tip = $("tooltip");
+      // Hover the module cells (the clickable overlay).
+      if (moduleMesh && moduleMesh.visible) {
+        const mhits = raycaster.intersectObject(moduleMesh);
+        if (mhits.length && mhits[0].faceIndex != null) {
+          const idx = Math.floor(mhits[0].faceIndex / 2);
           renderer.domElement.style.cursor = "pointer";
-          const p = pileData[idx];
-          const tip = $("tooltip");
+          if (idx !== hoverIndex) {
+            hoverIndex = idx;
+            hoverHighlightModule(idx);
+          }
+          const m = moduleRecords[idx];
+          const a = (m && assignments[m.id]) || {};
           tip.style.display = "block";
           tip.style.left = e.clientX + "px";
           tip.style.top = e.clientY + "px";
-          const photoBadge = hasPhoto(p) ? " 📷" : "";
-          tip.textContent = `${displaySerial(p)} · ${p.group} · ${p.postType}${photoBadge}`;
-        } else {
-          $("tooltip").style.left = e.clientX + "px";
-          $("tooltip").style.top = e.clientY + "px";
+          tip.textContent = (a.serial || (m ? m.id : "")) + (a.photo ? " 📷" : "");
+          return;
         }
-      } else if (hoverIndex !== -1) {
-        hoverIndex = -1;
-        renderer.domElement.style.cursor = "";
-        $("tooltip").style.display = "none";
       }
+      if (hoverIndex !== -1) {
+        hoverIndex = -1;
+        clearHoverHighlight();
+        renderer.domElement.style.cursor = "";
+        tip.style.display = "none";
+      }
+    }
+    // Lightweight hover highlight (separate from the click selection highlight).
+    let hoverHiIdx = -1, hoverHiOrig = null;
+    function clearHoverHighlight() {
+      if (hoverHiIdx < 0 || !moduleMesh) return;
+      if (hoverHiIdx !== moduleHighlightIdx) {  // don't clobber the selected cell
+        const col = moduleMesh.geometry.attributes.color.array;
+        const o = hoverHiIdx * 4 * 3;
+        for (let k = 0; k < 12; k++) col[o + k] = hoverHiOrig[k];
+        moduleMesh.geometry.attributes.color.needsUpdate = true;
+        requestRender();
+      }
+      hoverHiIdx = -1; hoverHiOrig = null;
+    }
+    function hoverHighlightModule(idx) {
+      if (!moduleMesh) return;
+      clearHoverHighlight();
+      if (idx === moduleHighlightIdx) return;  // already the selected (white) cell
+      const col = moduleMesh.geometry.attributes.color.array;
+      const o = idx * 4 * 3;
+      hoverHiOrig = col.slice(o, o + 12);
+      for (let k = 0; k < 4; k++) { col[o+k*3]=0.99; col[o+k*3+1]=0.62; col[o+k*3+2]=0.04; } // orange hover
+      moduleMesh.geometry.attributes.color.needsUpdate = true;
+      hoverHiIdx = idx;
+      requestRender();
     }
     renderer.domElement.addEventListener("pointermove", onPointerMove);
 
