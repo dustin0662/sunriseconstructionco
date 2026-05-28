@@ -42,6 +42,7 @@ def array_mask(im):
 
 
 def count_cells(mask, p, W, H, emit=False):
+    """Count (or emit) grid cells. When emit, returns [[u,v,coverage],...]."""
     cells = []
     n = 0
     rows = int((H - p) / p)
@@ -53,10 +54,12 @@ def count_cells(mask, p, W, H, emit=False):
         for cx in range(cols):
             x = int(round(cx * p))
             block = row[:, x:x+pe]
-            if block.size and block.mean() >= MIN_COVER:
-                n += 1
-                if emit:
-                    cells.append([round((x + p/2)/W, 4), round((y + p/2)/H, 4)])
+            if block.size:
+                cov = block.mean()
+                if cov >= MIN_COVER:
+                    n += 1
+                    if emit:
+                        cells.append([round((x + p/2)/W, 4), round((y + p/2)/H, 4), float(cov)])
     return (cells if emit else n)
 
 
@@ -78,29 +81,45 @@ def main():
     def total_at(p):
         return sum(count_cells(m, p, W, H) for (_, (W, H), m) in masks)
 
+    # Calibrate so the grid produces at least `target` cells, then trim the
+    # lowest-coverage (fuzzy edge) cells down to exactly `target`.
     lo, hi = 2.5, 20.0
-    for _ in range(28):
+    for _ in range(30):
         mid = (lo + hi) / 2
-        t = total_at(mid)
-        if t > target:   # too many cells -> bigger pitch
+        if total_at(mid) > target:   # too many -> bigger pitch
             lo = mid
         else:
             hi = mid
-    pitch = (lo + hi) / 2
-    print(f"calibrated pitch: {pitch:.3f}px -> total {total_at(pitch)}")
+    pitch = lo  # slightly denser side, guarantees >= target before trimming
+
+    # Emit candidates with coverage, per overlay.
+    raw = []
+    for icon, (W, H), m in masks:
+        for u, v, cov in count_cells(m, pitch, W, H, emit=True):
+            raw.append((icon, W, H, u, v, cov))
+    print(f"calibrated pitch: {pitch:.3f}px -> {len(raw)} candidate cells")
+
+    # Trim to exactly target by dropping the lowest-coverage cells.
+    if len(raw) > target:
+        raw.sort(key=lambda c: c[5], reverse=True)
+        raw = raw[:target]
+
+    by_icon = {}
+    for icon, W, H, u, v, cov in raw:
+        by_icon.setdefault(icon, {"W": W, "H": H, "cells": []})["cells"].append([u, v])
 
     overlays_out = []
     total = 0
     for icon, (W, H), m in masks:
-        cells = count_cells(m, pitch, W, H, emit=True)
+        d = by_icon.get(icon, {"cells": []})
         overlays_out.append({
             "icon": icon,
             "cellU": round(pitch / W, 5),
             "cellV": round(pitch / H, 5),
-            "cells": cells,
+            "cells": d["cells"],
         })
-        total += len(cells)
-        print(f"{icon}: {len(cells)} cells")
+        total += len(d["cells"])
+        print(f"{icon}: {len(d['cells'])} cells")
 
     out = {"meta": {"pitchPx": round(pitch, 3), "target": target, "total": total},
            "overlays": overlays_out}
