@@ -74,13 +74,21 @@
   }
   #groups h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
   .group-row {
-    display: flex; justify-content: space-between;
+    display: grid;
+    grid-template-columns: 14px 1fr auto;
+    align-items: center;
+    gap: 8px;
     padding: 5px 8px;
     border-radius: 6px;
     cursor: pointer;
+    user-select: none;
   }
   .group-row:hover { background: rgba(255,255,255,0.05); }
   .group-row.off { opacity: 0.4; }
+  .group-row .group-swatch {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.25);
+  }
   .group-row .count { color: var(--muted); font-variant-numeric: tabular-nums; }
 
   #info {
@@ -352,6 +360,42 @@
   body.anchor-pick-pile #app canvas { cursor: crosshair !important; }
   body.anchor-pick-target #app canvas { cursor: cell !important; }
 
+  body.layout-locked #align-panel input[type="range"],
+  body.layout-locked #align-panel input[type="number"],
+  body.layout-locked #align-panel .btn:not(#btn-lock):not(#btn-toggle-overlay):not(#btn-view-top):not(#btn-view-iso):not(.color-mode-btn) {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  #btn-lock {
+    width: 100%;
+    background: rgba(34,197,94,0.16);
+    border-color: rgba(34,197,94,0.45);
+    color: #bbf7d0;
+  }
+  body.layout-locked #btn-lock {
+    background: rgba(220,38,38,0.16);
+    border-color: rgba(220,38,38,0.45);
+    color: #fca5a5;
+  }
+
+  .color-mode-row {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.07);
+  }
+  .color-mode-row .color-mode-label {
+    color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-right: 2px;
+  }
+  .color-mode-btn { flex: 1; padding: 5px 0; font-size: 11px; }
+  .color-mode-btn.active {
+    background: rgba(249,115,22,0.22);
+    border-color: rgba(249,115,22,0.5);
+    color: #ffd9b4;
+  }
+
   .has-photo-indicator {
     color: #f97316;
     font-size: 10px;
@@ -415,8 +459,15 @@
       <input type="number" id="align-scale-num" step="0.01" value="1" />
     </div>
     <div class="align-buttons">
+      <button class="btn" id="btn-lock">🔒 Unlock layout</button>
+    </div>
+    <div class="align-buttons">
       <button class="btn primary" id="btn-anchor">2-pt anchor</button>
       <button class="btn" id="btn-align-reset">Reset</button>
+    </div>
+    <div class="align-buttons">
+      <button class="btn" id="btn-flip-x">Flip X</button>
+      <button class="btn" id="btn-flip-z">Flip Z</button>
     </div>
     <div class="align-buttons">
       <button class="btn" id="btn-kmz-align">Use KMZ georef</button>
@@ -425,6 +476,12 @@
     <div class="align-buttons">
       <button class="btn" id="btn-view-top">Top view</button>
       <button class="btn" id="btn-view-iso">Iso view</button>
+    </div>
+    <div class="color-mode-row">
+      <span class="color-mode-label">Color by</span>
+      <button class="btn color-mode-btn" data-mode="group">Group</button>
+      <button class="btn color-mode-btn" data-mode="postType">Post type</button>
+      <button class="btn color-mode-btn" data-mode="white">White</button>
     </div>
     <div id="anchor-status" class="anchor-status">Tip: drag sliders, or use 2-pt anchor to align by clicking two reference points.</div>
   </div>
@@ -628,7 +685,31 @@
     // scale; the editable transform layers tx/tz/rotDeg/scale on top of that.
     const TRANSFORM_KEY = "midway_pile_transform_v1";
     let transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
-    let layoutCtx = null; // { baseScale, pdfCenterX, pdfCenterY, modelCenterX, modelCenterZ, bbox, rayTargets }
+    let layoutCtx = null;
+    // Group colors — N7-A blue and N8 green per spec, others distinct.
+    const GROUP_COLORS = {
+      'N1':   '#f87171',
+      'N2':   '#fb923c',
+      'N3':   '#facc15',
+      'N4':   '#38bdf8',
+      'N5':   '#a78bfa',
+      'N6':   '#f472b6',
+      'N7-A': '#3b82f6',
+      'N7-B': '#06b6d4',
+      'N8':   '#22c55e',
+      'N9':   '#d946ef',
+    };
+    // Color mode: 'group' (default), 'postType', or 'white'.
+    const COLOR_MODE_KEY = "midway_pile_color_mode_v1";
+    let colorMode = localStorage.getItem(COLOR_MODE_KEY) || "group";
+    // Layout lock: when locked, sliders/buttons that change alignment are disabled.
+    const LOCK_KEY = "midway_pile_layout_locked_v1";
+    let layoutLocked = (localStorage.getItem(LOCK_KEY) ?? "1") === "1";
+    function pileColorHex(p) {
+      if (colorMode === "white") return "#ffffff";
+      if (colorMode === "postType") return p.hex || "#888888";
+      return GROUP_COLORS[p.group] || "#ffffff";
+    } // { baseScale, pdfCenterX, pdfCenterY, modelCenterX, modelCenterZ, bbox, rayTargets }
     try {
       const raw = localStorage.getItem(TRANSFORM_KEY);
       if (raw) {
@@ -754,7 +835,6 @@
 
       const dummy = new THREE.Object3D();
       const tmpColor = new THREE.Color();
-      const whiteColor = new THREE.Color("#ffffff");
       markerFloatHeight = markerRadius * 1.6; // float just above surface
       const floatHeight = markerFloatHeight;
       for (let i = 0; i < pileData.length; i++) {
@@ -763,7 +843,8 @@
         dummy.scale.setScalar(1);
         dummy.updateMatrix();
         pileMesh.setMatrixAt(i, dummy.matrix);
-        pileMesh.setColorAt(i, whiteColor);
+        tmpColor.set(pileColorHex(p));
+        pileMesh.setColorAt(i, tmpColor);
       }
       pileMesh.instanceMatrix.needsUpdate = true;
       if (pileMesh.instanceColor) pileMesh.instanceColor.needsUpdate = true;
@@ -779,8 +860,9 @@
         const topY = baseY + floatHeight;
         stalkPos[i*6+0] = p.position.x; stalkPos[i*6+1] = baseY; stalkPos[i*6+2] = p.position.z;
         stalkPos[i*6+3] = p.position.x; stalkPos[i*6+4] = topY;  stalkPos[i*6+5] = p.position.z;
-        stalkCol[i*6+0] = 1; stalkCol[i*6+1] = 1; stalkCol[i*6+2] = 1;
-        stalkCol[i*6+3] = 1; stalkCol[i*6+4] = 1; stalkCol[i*6+5] = 1;
+        tmpColor.set(pileColorHex(p));
+        stalkCol[i*6+0] = tmpColor.r; stalkCol[i*6+1] = tmpColor.g; stalkCol[i*6+2] = tmpColor.b;
+        stalkCol[i*6+3] = tmpColor.r; stalkCol[i*6+4] = tmpColor.g; stalkCol[i*6+5] = tmpColor.b;
       }
       const stalkGeo = new THREE.BufferGeometry();
       stalkGeo.setAttribute("position", new THREE.BufferAttribute(stalkPos, 3));
@@ -806,6 +888,11 @@
       buildLegendUI(data.meta);
       buildGroupUI(data.meta);
       syncAlignUIFromTransform();
+      // Color-mode + lock UI state on load
+      document.querySelectorAll(".color-mode-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.mode === colorMode);
+      });
+      applyLockState();
       // If a non-default transform was loaded, apply it now.
       if (transform.tx || transform.tz || transform.rotDeg || transform.scale !== 1) {
         applyTransform({ persist: false });
@@ -900,6 +987,38 @@
       syncAlignUIFromTransform();
     }
 
+    // Refresh per-instance colors + stalk colors after a colorMode change.
+    function recolorPiles() {
+      if (!pileMesh || !pileStalks) return;
+      const c = new THREE.Color();
+      const stalkCol = pileStalks.geometry.attributes.color.array;
+      for (let i = 0; i < pileData.length; i++) {
+        c.set(pileColorHex(pileData[i]));
+        pileMesh.setColorAt(i, c);
+        stalkCol[i*6+0] = c.r; stalkCol[i*6+1] = c.g; stalkCol[i*6+2] = c.b;
+        stalkCol[i*6+3] = c.r; stalkCol[i*6+4] = c.g; stalkCol[i*6+5] = c.b;
+      }
+      if (pileMesh.instanceColor) pileMesh.instanceColor.needsUpdate = true;
+      pileStalks.geometry.attributes.color.needsUpdate = true;
+    }
+
+    // Apply lock state to the alignment UI.
+    function applyLockState() {
+      document.body.classList.toggle("layout-locked", layoutLocked);
+      const ids = [
+        "align-tx", "align-tz", "align-rot", "align-scale",
+        "align-tx-num", "align-tz-num", "align-rot-num", "align-scale-num",
+        "btn-align-reset", "btn-anchor", "btn-kmz-align",
+        "btn-flip-x", "btn-flip-z",
+      ];
+      ids.forEach(id => { const el = $(id); if (el) el.disabled = layoutLocked; });
+      const lockBtn = $("btn-lock");
+      if (lockBtn) lockBtn.textContent = layoutLocked ? "🔒 Unlock layout" : "🔓 Lock layout";
+      try { localStorage.setItem(LOCK_KEY, layoutLocked ? "1" : "0"); } catch (_) {}
+      // If a user was mid-anchor when they locked, cancel that flow.
+      if (layoutLocked && anchor && anchor.active) exitAnchorMode("Layout locked.");
+    }
+
     // ---- UI -----------------------------------------------------------------
     function buildLegendUI(meta) {
       const container = $("legend-rows");
@@ -937,7 +1056,12 @@
         const el = document.createElement("div");
         el.className = "group-row";
         el.dataset.group = g;
-        el.innerHTML = `<span>${g}</span><span class="count">${count}</span>`;
+        const hex = GROUP_COLORS[g] || "#ffffff";
+        el.innerHTML = `
+          <span class="group-swatch" style="background:${hex}"></span>
+          <span class="group-name">${g}</span>
+          <span class="count">${count}</span>
+        `;
         el.addEventListener("click", () => {
           if (groupFilter.has(g)) groupFilter.delete(g);
           else groupFilter.add(g);
@@ -1236,8 +1360,41 @@
     bindAlign("align-rot", "align-rot-num", "rotDeg");
     bindAlign("align-scale", "align-scale-num", "scale");
     $("btn-align-reset").addEventListener("click", () => {
+      if (layoutLocked) return;
       resetTransform();
       toast("Alignment reset");
+    });
+
+    $("btn-lock").addEventListener("click", () => {
+      layoutLocked = !layoutLocked;
+      applyLockState();
+      toast(layoutLocked ? "Layout locked" : "Layout unlocked — alignment editable");
+    });
+
+    $("btn-flip-x").addEventListener("click", () => {
+      if (layoutLocked) return;
+      transform.geoStretchX = (transform.geoStretchX || 1) * -1;
+      applyTransform();
+      toast("Flipped horizontally");
+    });
+    $("btn-flip-z").addEventListener("click", () => {
+      if (layoutLocked) return;
+      transform.geoStretchZ = (transform.geoStretchZ || 1) * -1;
+      applyTransform();
+      toast("Flipped vertically");
+    });
+
+    // Color-mode picker
+    function setColorMode(mode) {
+      colorMode = mode;
+      try { localStorage.setItem(COLOR_MODE_KEY, mode); } catch (_) {}
+      document.querySelectorAll(".color-mode-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.mode === mode);
+      });
+      recolorPiles();
+    }
+    document.querySelectorAll(".color-mode-btn").forEach(b => {
+      b.addEventListener("click", () => setColorMode(b.dataset.mode));
     });
 
     // ---- KMZ georeference --------------------------------------------------
