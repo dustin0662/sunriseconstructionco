@@ -1,77 +1,114 @@
 #!/usr/bin/env python3
 """Auto-trace PV cells from the georeferenced CAD overlay JPEGs.
 
-Detects the blue array regions in each KMZ CAD overlay and tiles them with
-a grid of cells, emitting normalized (u, v) image coordinates. The viewer
-parents these cells to the CAD overlay group, so they stay aligned with
-whatever fit the user applies to the CAD image.
+Detects the blue array regions, cleans noise (morphological opening + drop
+small components so stray tree/edge pixels don't become cells), then lays a
+uniform grid whose pitch is auto-calibrated so the TOTAL cell count matches
+the drawing module quantity. Cells are emitted as normalized (u,v) image
+coordinates; the viewer parents them to the CAD overlay so they track the fit.
 
 Output: data/cad_cells.json
-  { meta:{...}, overlays:[ {icon, cellU, cellV, cells:[[u,v],...]} ] }
 """
 import json, os, sys
 from PIL import Image
 import numpy as np
+from scipy import ndimage
 
-KMZ_FILES = os.path.join(os.path.dirname(__file__), "..", "data", "kmz", "files")
 KMZ_JSON = os.path.join(os.path.dirname(__file__), "..", "data", "kmz_reference.json")
+MODULES_JSON = os.path.join(os.path.dirname(__file__), "..", "data", "modules.json")
 OUT = os.path.join(os.path.dirname(__file__), "..", "data", "cad_cells.json")
 
-# Approx grid pitch in pixels. ~one cell per module (modules ≈ 4.5px here).
-PITCH = float(os.environ.get("CELL_PITCH", "4.5"))
-# Min fraction of array-mask coverage in a cell to keep it.
-MIN_COVER = float(os.environ.get("MIN_COVER", "0.5"))
+MIN_COVER = 0.5
+MIN_COMPONENT_PX = 800       # drop array blobs smaller than this (noise)
+DEFAULT_TARGET = 23984       # fallback if modules.json missing
 
 
 def array_mask(im):
     a = np.asarray(im.convert("RGB")).astype(np.int16)
     r, g, b = a[..., 0], a[..., 1], a[..., 2]
-    mask = (b > r + 18) & (b > 60) & (g > r - 10)
-    mask &= ~((g > b + 25) & (g > r + 25))  # drop green stringing lines
-    return mask
+    m = (b > r + 18) & (b > 60) & (g > r - 10)
+    m &= ~((g > b + 25) & (g > r + 25))
+    m = ndimage.binary_opening(m, structure=np.ones((3, 3)), iterations=1)
+    lab, nl = ndimage.label(m)
+    if nl:
+        sizes = ndimage.sum(np.ones_like(lab), lab, range(1, nl + 1))
+        keep = np.zeros_like(m)
+        for i, s in enumerate(sizes, 1):
+            if s >= MIN_COMPONENT_PX:
+                keep |= (lab == i)
+        m = keep
+    return m
+
+
+def count_cells(mask, p, W, H, emit=False):
+    cells = []
+    n = 0
+    rows = int((H - p) / p)
+    cols = int((W - p) / p)
+    pe = max(1, int(round(p)))
+    for ry in range(rows):
+        y = int(round(ry * p))
+        row = mask[y:y+pe]
+        for cx in range(cols):
+            x = int(round(cx * p))
+            block = row[:, x:x+pe]
+            if block.size and block.mean() >= MIN_COVER:
+                n += 1
+                if emit:
+                    cells.append([round((x + p/2)/W, 4), round((y + p/2)/H, 4)])
+    return (cells if emit else n)
 
 
 def main():
-    if not os.path.exists(KMZ_JSON):
-        print("kmz_reference.json missing", file=sys.stderr); sys.exit(1)
     kmz = json.load(open(KMZ_JSON))
+    target = DEFAULT_TARGET
+    if os.path.exists(MODULES_JSON):
+        try:
+            target = json.load(open(MODULES_JSON))["meta"]["total"]
+        except Exception:
+            pass
+    print(f"drawing module total (target): {target}")
+
+    masks = []
+    for ov in kmz.get("overlays", []):
+        path = os.path.join(os.path.dirname(__file__), "..", "data", "kmz", ov["icon"])
+        if not os.path.exists(path):
+            continue
+        im = Image.open(path)
+        masks.append((ov["icon"], im.size, array_mask(im)))
+
+    # Binary-search a single global pitch so total cells ~= target.
+    def total_at(p):
+        return sum(count_cells(m, p, W, H) for (_, (W, H), m) in masks)
+
+    lo, hi = 2.5, 20.0
+    for _ in range(28):
+        mid = (lo + hi) / 2
+        t = total_at(mid)
+        if t > target:   # too many cells -> bigger pitch
+            lo = mid
+        else:
+            hi = mid
+    pitch = (lo + hi) / 2
+    print(f"calibrated pitch: {pitch:.3f}px -> total {total_at(pitch)}")
+
     overlays_out = []
     total = 0
-    for ov in kmz.get("overlays", []):
-        icon = ov["icon"]
-        path = os.path.join(os.path.dirname(__file__), "..", "data", "kmz", icon)
-        if not os.path.exists(path):
-            print("missing image", path, file=sys.stderr); continue
-        im = Image.open(path)
-        W, H = im.size
-        mask = array_mask(im)
-        p = PITCH
-        cols = int((W - p) / p)
-        rows = int((H - p) / p)
-        cells = []
-        for ry in range(rows):
-            y = int(round(ry * p))
-            for rx in range(cols):
-                x = int(round(rx * p))
-                pe = int(round(p))
-                block = mask[y:y+pe, x:x+pe]
-                if block.size and block.mean() >= MIN_COVER:
-                    u = (x + p/2) / W
-                    v = (y + p/2) / H
-                    cells.append([round(u, 4), round(v, 4)])
+    for icon, (W, H), m in masks:
+        cells = count_cells(m, pitch, W, H, emit=True)
         overlays_out.append({
             "icon": icon,
-            "cellU": round(p / W, 5),
-            "cellV": round(p / H, 5),
+            "cellU": round(pitch / W, 5),
+            "cellV": round(pitch / H, 5),
             "cells": cells,
         })
         total += len(cells)
-        print(f"{icon}: {len(cells)} cells  (image {W}x{H}, pitch {p}px)")
-    out = {"meta": {"pitchPx": PITCH, "minCover": MIN_COVER, "total": total},
+        print(f"{icon}: {len(cells)} cells")
+
+    out = {"meta": {"pitchPx": round(pitch, 3), "target": target, "total": total},
            "overlays": overlays_out}
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
     json.dump(out, open(OUT, "w"), separators=(",", ":"))
-    print(f"wrote {OUT}: {total} cells ({os.path.getsize(OUT)//1024} KB)")
+    print(f"wrote {OUT}: {total} cells (target {target}, {os.path.getsize(OUT)//1024} KB)")
 
 
 if __name__ == "__main__":
