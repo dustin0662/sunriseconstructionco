@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<title>Midway — TT24-10195</title>
+<style>
+  :root{--bg:#0a0a14;--fg:#e8eaf0;--muted:#9aa1b2;--accent:#f97316;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;}
+  body{display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:24px;gap:28px;min-height:100vh;}
+  .head{text-align:center}
+  .head h1{margin:0 0 6px;font-size:22px;letter-spacing:.02em}
+  .head p{margin:0;color:var(--muted);font-size:13px}
+  .cards{display:flex;gap:20px;flex-wrap:wrap;justify-content:center;width:100%;max-width:760px}
+  a.card{flex:1 1 300px;min-width:260px;text-decoration:none;color:var(--fg);
+    background:rgba(18,22,36,.92);border:1px solid rgba(255,255,255,.08);
+    border-radius:16px;padding:26px;display:flex;flex-direction:column;gap:12px;
+    transition:transform .15s ease,border-color .15s ease;box-shadow:0 8px 32px rgba(0,0,0,.35)}
+  a.card:hover{transform:translateY(-3px);border-color:rgba(249,115,22,.5)}
+  .card .ic{font-size:42px;line-height:1}
+  .card h2{margin:0;font-size:18px}
+  .card p{margin:0;color:var(--muted);font-size:13px;line-height:1.5}
+  .card .go{margin-top:auto;color:var(--accent);font-size:13px;font-weight:600}
+  .foot{color:var(--muted);font-size:11px;text-align:center}
+  .stat{color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Midway — TT24-10195</h1>
+    <p>Foundation &amp; Module Field · field data tool</p>
+  </div>
+  <div class="cards">
+    <a class="card" href="drawings.html">
+      <div class="ic">▦</div>
+      <h2>Drawings — Data Entry</h2>
+      <p>Pick a row, photograph each module, auto-read the serial, and step
+         through the row. Color-coded by group.</p>
+      <div class="stat" id="stat-mods">—</div>
+      <div class="go">Open drawings →</div>
+    </a>
+    <a class="card" href="model.html">
+      <div class="ic">⛰</div>
+      <h2>3D Model</h2>
+      <p>Inspect the site in 3D. Click modules to view/assign photos and
+         serials. Shares the same data as the drawings tool.</p>
+      <div class="stat">Terrain + module overlay</div>
+      <div class="go">Open model →</div>
+    </a>
+  </div>
+  <div class="foot">Read-only? add <code>?view=readonly</code> to either link.</div>
+  <script>
+    fetch("data/cad_rows.json").then(r=>r.ok?r.json():null).then(d=>{
+      if(d&&d.meta){
+        document.getElementById("stat-mods").textContent =
+          d.meta.total.toLocaleString()+" modules · "+d.meta.rowCount+" rows · "+d.meta.groups.length+" groups";
+      }
+    }).catch(()=>{});
+    // Preserve a readonly flag across the dashboard links.
+    if (new URLSearchParams(location.search).get("view")==="readonly"){
+      document.querySelectorAll("a.card").forEach(a=>a.href+="?view=readonly");
+    }
+  </script>
+</body>
+</html>
