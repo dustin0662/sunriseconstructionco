@@ -10,24 +10,32 @@ export default async (req) => {
   if (!me) return new Response(JSON.stringify({ error: "Sign in required" }), { status: 401 });
 
   let body; try { body = await req.json(); } catch { return new Response("Bad JSON", { status: 400 }); }
-  const { moduleId, row = "", serial = "", photoDataUrl } = body || {};
+  const { moduleId, row = "", serial = "", photoDataUrl, remove, clearPhoto } = body || {};
   if (!moduleId) return new Response(JSON.stringify({ error: "moduleId required" }), { status: 400 });
 
   const store = getStore("captures");
+
+  if (remove) {
+    try { await store.delete(moduleId); } catch {}
+    return new Response(JSON.stringify({ ok: true, removed: moduleId }), { headers: { "content-type": "application/json" } });
+  }
+
   const ts = new Date().toISOString();
   let existing = null;
   try { existing = await store.getWithMetadata(moduleId, { type: "arrayBuffer" }); } catch {}
   const prev = (existing && existing.metadata) || {};
 
   let value, hasPhoto = !!prev.hasPhoto;
-  if (photoDataUrl && photoDataUrl.startsWith("data:")) {
+  if (clearPhoto) {
+    value = Buffer.from(""); hasPhoto = false;
+  } else if (photoDataUrl && photoDataUrl.startsWith("data:")) {
     value = Buffer.from(photoDataUrl.split(",")[1] || "", "base64"); hasPhoto = true;
   } else if (existing && existing.data) {
     value = Buffer.from(existing.data);
   } else { value = Buffer.from(""); }
 
   const metadata = {
-    serial: serial || prev.serial || "",
+    serial: ("serial" in body) ? String(serial || "") : (prev.serial || ""),
     user: me.name || me.email, ts,
     row: row || prev.row || "", hasPhoto,
   };

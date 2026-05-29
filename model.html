@@ -593,8 +593,10 @@
       </div>
       <div class="stats" id="stats"></div>
     </div>
-    <div>
+    <div style="display:flex;align-items:center;gap:10px">
       <input id="search" type="search" placeholder="Search serial (e.g. P-0123)" autocomplete="off" />
+      <span id="auth-user" style="font-size:12px;color:var(--muted, #9aa1b2)"></span>
+      <button class="btn" id="btn-auth">Sign in</button>
     </div>
   </div>
 
@@ -750,6 +752,7 @@
 
   <div id="tooltip"></div>
 
+  <script src="assets/midway-api.js"></script>
   <script type="importmap">
   {
     "imports": {
@@ -775,27 +778,50 @@
       $("mode-badge").textContent = "Read-only";
     }
 
-    const STORAGE_KEY = "midway_pile_assignments_v1";
-    // assignments: { [pileId]: { serial?: string, photo?: dataURL, updatedAt: number } }
+    // Server-backed captures (shared, multi-user). assignments is an in-memory
+    // cache keyed by pileId: { serial?, user?, ts?, hasPhoto? }. Pile keys live
+    // under a "pile:" prefix in the shared store so they never collide with the
+    // module captures from drawings.html.
+    const PILE_PREFIX = "pile:";
     let assignments = {};
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) assignments = JSON.parse(raw) || {};
-    } catch (_) { assignments = {}; }
+    const signedIn = () => !!(window.MidwayAPI && MidwayAPI.user());
 
-    function saveAssignments() {
+    async function loadAssignmentsFromServer() {
+      if (!window.MidwayAPI || !signedIn()) return;
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(assignments));
+        const caps = await MidwayAPI.listCaptures();
+        const next = {};
+        for (const [k, v] of Object.entries(caps)) {
+          if (k.startsWith(PILE_PREFIX)) next[k.slice(PILE_PREFIX.length)] = v;
+        }
+        Object.assign(assignments, next); // server is source of truth, wins over any seed
+        updateAssignedCount();
+        refreshSelected();
+      } catch (err) { console.error(err); }
+    }
+
+    // Push one pile's change to the server and update the local cache.
+    // opts: { serial, photoDataUrl, clearPhoto, remove }
+    async function pushCapture(id, opts) {
+      if (!signedIn()) { toast("Sign in to make changes", 3000); return; }
+      try {
+        const res = await MidwayAPI.saveCapture(PILE_PREFIX + id, opts);
+        if (opts.remove) delete assignments[id];
+        else assignments[id] = { serial: res.serial || "", user: res.user, ts: res.ts, hasPhoto: !!res.hasPhoto };
       } catch (err) {
-        toast("Storage full. Export and clear to free space.", 4000);
         console.error(err);
+        toast("Save failed: " + (err.message || err), 4000);
+        throw err;
       }
     }
+    // Legacy no-op: writes now go through pushCapture. Kept so older call sites
+    // that only mutate the local cache don't break.
+    function saveAssignments() {}
 
     function assignedCount() {
       return Object.keys(assignments).filter(k => {
         const a = assignments[k];
-        return a && (a.photo || a.serial);
+        return a && (a.hasPhoto || a.serial);
       }).length;
     }
     function updateAssignedCount() {
@@ -808,7 +834,7 @@
     }
     function hasPhoto(p) {
       const a = assignments[p.pileId];
-      return !!(a && a.photo);
+      return !!(a && a.hasPhoto);
     }
 
     function toast(msg, ms = 2200) {
@@ -1688,7 +1714,7 @@
       if (i < 0) return;
       placedCells.splice(i, 1);
       savePlacedCells();
-      if (assignments[id]) { delete assignments[id]; saveAssignments(); updateAssignedCount(); }
+      if (assignments[id]) { pushCapture(id, { remove: true }).then(updateAssignedCount).catch(()=>{}); }
       if (placedGroup) {
         const mesh = placedGroup.children.find(m => m.userData.cellId === id);
         if (mesh) placedGroup.remove(mesh);
@@ -1927,7 +1953,7 @@
           renderer.domElement.style.cursor = "pointer";
           tip.style.display = "block";
           tip.style.left = e.clientX + "px"; tip.style.top = e.clientY + "px";
-          tip.textContent = (a.serial || (rec ? rec.id : "")) + (a.photo ? " 📷" : "");
+          tip.textContent = (a.serial || (rec ? rec.id : "")) + (a.hasPhoto ? " 📷" : "");
           return;
         }
       }
@@ -1946,7 +1972,7 @@
           tip.style.display = "block";
           tip.style.left = e.clientX + "px";
           tip.style.top = e.clientY + "px";
-          tip.textContent = (a.serial || (m ? m.id : "")) + (a.photo ? " 📷" : "");
+          tip.textContent = (a.serial || (m ? m.id : "")) + (a.hasPhoto ? " 📷" : "");
           return;
         }
       }
@@ -1995,9 +2021,9 @@
       $("info-pid").textContent = id;
       const photoWrap = $("info-photo-wrap");
       photoWrap.innerHTML = "";
-      if (a.photo) {
+      if (a.hasPhoto) {
         const img = document.createElement("img");
-        img.src = a.photo; img.alt = id;
+        img.src = MidwayAPI.photoUrl(PILE_PREFIX + id, a.ts || Date.now()); img.alt = id;
         photoWrap.appendChild(img);
         $("info-photo-tag").style.display = "";
       } else {
@@ -2205,57 +2231,50 @@
       if (!file || !currentSel) return;
       try {
         const dataURL = await fileToResizedDataURL(file, 800, 0.78);
-        const id = currentSel.id;
-        const a = assignments[id] || {};
-        a.photo = dataURL;
-        a.updatedAt = Date.now();
-        assignments[id] = a;
-        saveAssignments();
+        await pushCapture(currentSel.id, { photoDataUrl: dataURL });
         refreshSelected();
         toast("Photo saved");
       } catch (err) {
         console.error(err);
-        toast("Could not load image", 3000);
+        toast("Could not save photo", 3000);
       }
       e.target.value = "";
     });
 
-    $("photo-clear-btn").addEventListener("click", () => {
+    $("photo-clear-btn").addEventListener("click", async () => {
       if (READONLY || !currentSel) return;
       const id = currentSel.id;
       const a = assignments[id];
-      if (a && a.photo) {
-        delete a.photo;
-        if (!a.serial) delete assignments[id];
-        else a.updatedAt = Date.now();
-        saveAssignments();
-        refreshSelected();
-        toast("Photo removed");
+      if (a && a.hasPhoto) {
+        try {
+          // No serial left -> drop the record entirely; else keep serial, clear photo.
+          await pushCapture(id, a.serial ? { clearPhoto: true } : { remove: true });
+          refreshSelected();
+          toast("Photo removed");
+        } catch (_) {}
       }
     });
 
-    $("info-save").addEventListener("click", () => {
+    $("info-save").addEventListener("click", async () => {
       if (READONLY || !currentSel) return;
       const id = currentSel.id, def = currentSel.defaultSerial;
       const sv = $("serial-input").value.trim();
+      const serial = (sv && sv !== def) ? sv : "";
       const a = assignments[id] || {};
-      if (sv && sv !== def) a.serial = sv; else delete a.serial;
-      a.updatedAt = Date.now();
-      if (!a.serial && !a.photo) delete assignments[id];
-      else assignments[id] = a;
-      saveAssignments();
-      refreshSelected();
-      toast("Saved");
+      try {
+        // Clearing the serial with no photo on record -> remove entirely.
+        if (!serial && !a.hasPhoto) await pushCapture(id, { remove: true });
+        else await pushCapture(id, { serial });
+        refreshSelected();
+        toast("Saved");
+      } catch (_) {}
     });
 
-    $("info-reset").addEventListener("click", () => {
+    $("info-reset").addEventListener("click", async () => {
       if (READONLY || !currentSel) return;
       const id = currentSel.id;
       if (assignments[id]) {
-        delete assignments[id];
-        saveAssignments();
-        refreshSelected();
-        toast("Reset to defaults");
+        try { await pushCapture(id, { remove: true }); refreshSelected(); toast("Reset to defaults"); } catch (_) {}
       }
     });
 
@@ -2299,15 +2318,17 @@
         const parsed = JSON.parse(txt);
         const incoming = parsed.assignments || parsed;
         if (typeof incoming !== "object" || !incoming) throw new Error("bad shape");
+        if (!signedIn()) { toast("Sign in to import", 3000); return; }
         let merged = 0;
         for (const [k, v] of Object.entries(incoming)) {
-          if (!v) continue;
-          assignments[k] = { ...(assignments[k] || {}), ...v };
+          if (!v || (!v.serial && !v.photo && !v.hasPhoto)) continue;
+          // Photos can't be re-uploaded from an export (it only carries metadata);
+          // import restores serials so field crews don't lose label data.
+          await pushCapture(k, { serial: v.serial || "" });
           merged++;
         }
-        saveAssignments();
         refreshSelected();
-        toast(`Imported ${merged} assignments`);
+        toast(`Imported ${merged} serials`);
       } catch (err) {
         console.error(err);
         toast("Import failed: " + (err.message || err), 4000);
@@ -2877,14 +2898,17 @@
       toast("Downloaded pile_transform.json");
     });
 
-    $("btn-clear-all").addEventListener("click", () => {
-      if (READONLY) return;
-      if (!Object.keys(assignments).length) { toast("Nothing to clear"); return; }
-      if (!confirm("Clear all local assignments? This cannot be undone.")) return;
-      assignments = {};
-      saveAssignments();
-      refreshSelected();
-      toast("Cleared local assignments");
+    $("btn-clear-all").addEventListener("click", async () => {
+      if (READONLY || !signedIn()) return;
+      const ids = Object.keys(assignments);
+      if (!ids.length) { toast("Nothing to clear"); return; }
+      if (!confirm("Clear ALL pile captures for everyone? This cannot be undone.")) return;
+      try {
+        await Promise.all(ids.map(id => MidwayAPI.saveCapture(PILE_PREFIX + id, { remove: true })));
+        assignments = {};
+        refreshSelected();
+        toast("Cleared all captures");
+      } catch (err) { toast("Clear failed: " + (err.message || err), 4000); }
     });
 
     $("search").addEventListener("input", (e) => {
@@ -2978,6 +3002,24 @@
     // Closing the info panel via its × should also clear the backdrop on mobile.
     $("info-close").addEventListener("click", closeSheets);
     window.addEventListener("resize", requestRender);
+
+    // ---- Auth (shared backend) ---------------------------------------------
+    function refreshAuthUI() {
+      const u = window.MidwayAPI && MidwayAPI.user();
+      const editable = !READONLY && !!u;
+      document.body.classList.toggle("readonly", !editable);
+      const badge = $("mode-badge");
+      if (badge) badge.textContent = READONLY ? "Read-only" : (u ? (MidwayAPI.isAdmin() ? "Admin" : "Editor") : "Sign in to edit");
+      const lbl = $("auth-user"); if (lbl) lbl.textContent = u ? (u.name || u.email) : "";
+      const btn = $("btn-auth"); if (btn) btn.textContent = u ? "Sign out" : "Sign in";
+    }
+    if (window.MidwayAPI) {
+      $("btn-auth").addEventListener("click", () => { MidwayAPI.user() ? MidwayAPI.logout() : MidwayAPI.login(); });
+      MidwayAPI.onChange(() => { refreshAuthUI(); loadAssignmentsFromServer(); });
+      MidwayAPI.init().then(() => { refreshAuthUI(); loadAssignmentsFromServer(); });
+    } else {
+      const btn = $("btn-auth"); if (btn) btn.style.display = "none";
+    }
 
     function animate() {
       requestAnimationFrame(animate);
