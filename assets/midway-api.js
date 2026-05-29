@@ -52,11 +52,11 @@
     if (!r.ok) throw new Error("captures " + r.status);
     return (await r.json()).captures || {};
   }
-  async function saveCapture(moduleId, { row, serial, photoDataUrl } = {}) {
+  async function saveCapture(moduleId, opts = {}) {
     const r = await fetch(`${FN}/capture`, {
       method: "POST",
       headers: { "content-type": "application/json", ...(token ? { authorization: "Bearer " + token } : {}) },
-      body: JSON.stringify({ moduleId, row, serial, photoDataUrl }),
+      body: JSON.stringify({ moduleId, ...opts }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || ("capture " + r.status));
