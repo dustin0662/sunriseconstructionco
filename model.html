@@ -1,0 +1,3001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<title>Midway — Foundation Pile Viewer</title>
+<style>
+  :root {
+    --bg: #0a0a14;
+    --panel: rgba(18, 22, 36, 0.92);
+    --panel-border: rgba(255,255,255,0.08);
+    --fg: #e8eaf0;
+    --muted: #9aa1b2;
+    --accent: #f97316;
+  }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  .panel {
+    position: absolute;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  }
+  #header {
+    top: 12px; left: 12px; right: 12px;
+    padding: 10px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+  }
+  #header .title { font-weight: 600; letter-spacing: 0.02em; }
+  #header .stats { color: var(--muted); font-size: 12px; }
+
+  #legend {
+    top: 70px; left: 12px;
+    width: 280px;
+    max-height: calc(100% - 100px);
+    padding: 12px 14px;
+    overflow-y: auto;
+    font-size: 12px;
+  }
+  #legend h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+  .legend-row {
+    display: grid;
+    grid-template-columns: 18px 1fr 36px 28px;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .legend-row:hover { background: rgba(255,255,255,0.05); }
+  .legend-row.off { opacity: 0.4; }
+  .legend-row .swatch {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.25);
+  }
+  .legend-row .name { font-weight: 500; }
+  .legend-row .type { color: var(--muted); font-size: 11px; }
+  .legend-row .count { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  #groups {
+    top: 70px; right: 12px;
+    width: 180px;
+    padding: 12px 14px;
+    font-size: 12px;
+  }
+  #groups h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+  .group-row {
+    display: grid;
+    grid-template-columns: 14px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .group-row:hover { background: rgba(255,255,255,0.05); }
+  .group-row.off { opacity: 0.4; }
+  .group-row .group-swatch {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.25);
+  }
+  .group-row .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  #info {
+    bottom: 12px; right: 12px;
+    width: 280px;
+    padding: 14px;
+    font-size: 12.5px;
+    display: none;
+  }
+  #info.shown { display: block; }
+  #info .serial { font-size: 18px; font-weight: 700; letter-spacing: 0.02em; }
+  #info .row {
+    display: flex; justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  #info .row:last-child { border-bottom: 0; }
+  #info .row .k { color: var(--muted); }
+  #info .row .v { font-variant-numeric: tabular-nums; }
+  #info .head {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px;
+  }
+  #info .swatch {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,0.25);
+    flex-shrink: 0;
+  }
+  #info .close {
+    position: absolute; top: 8px; right: 10px;
+    width: 22px; height: 22px;
+    background: transparent; color: var(--muted);
+    border: 0; cursor: pointer; font-size: 16px;
+    line-height: 1;
+  }
+
+  #controls {
+    bottom: 12px; left: 12px;
+    padding: 10px 12px;
+    font-size: 12px;
+    display: flex; flex-direction: column; gap: 6px;
+    color: var(--muted);
+  }
+  #controls .key { display: inline-block; min-width: 56px; color: var(--fg); }
+
+  #loading {
+    position: absolute;
+    inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg);
+    z-index: 50;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  #loading.hidden { display: none; }
+
+  #search {
+    margin-top: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.05);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 6px;
+    font-size: 12px;
+    box-sizing: border-box;
+  }
+  #search:focus { outline: none; border-color: var(--accent); }
+
+  #tooltip {
+    position: absolute;
+    pointer-events: none;
+    padding: 4px 8px;
+    background: rgba(0,0,0,0.85);
+    color: #fff;
+    font-size: 11px;
+    border-radius: 4px;
+    transform: translate(-50%, calc(-100% - 12px));
+    white-space: nowrap;
+    display: none;
+    z-index: 30;
+  }
+
+  /* Admin / info panel additions */
+  body.readonly .admin-only { display: none !important; }
+
+  #mode-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    margin-left: 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: rgba(249,115,22,0.2);
+    color: #f97316;
+    border: 1px solid rgba(249,115,22,0.4);
+  }
+  body.readonly #mode-badge {
+    background: rgba(34,197,94,0.18);
+    color: #4ade80;
+    border-color: rgba(34,197,94,0.4);
+  }
+
+  #toolbar {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .btn {
+    background: rgba(255,255,255,0.06);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    line-height: 1.2;
+    font-family: inherit;
+  }
+  .btn:hover { background: rgba(255,255,255,0.1); }
+  .btn.primary {
+    background: rgba(249,115,22,0.25);
+    border-color: rgba(249,115,22,0.5);
+    color: #ffe7d4;
+  }
+  .btn.primary:hover { background: rgba(249,115,22,0.4); }
+  .btn.danger {
+    background: rgba(220,38,38,0.18);
+    border-color: rgba(220,38,38,0.4);
+    color: #fca5a5;
+  }
+  .btn.danger:hover { background: rgba(220,38,38,0.3); }
+
+  #info {
+    max-height: calc(100% - 24px);
+    overflow-y: auto;
+  }
+  #info .edit-row {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  #info .edit-row label {
+    color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  #info .edit-row input[type="text"] {
+    background: rgba(255,255,255,0.05);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 12.5px;
+    font-family: inherit;
+  }
+  #info .edit-row input[type="text"]:focus {
+    outline: none; border-color: var(--accent);
+  }
+  #info .photo-wrap {
+    margin-top: 10px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.3);
+    aspect-ratio: 4/3;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  #info .photo-wrap img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  #info .photo-wrap .placeholder {
+    color: var(--muted); font-size: 11px;
+  }
+  #info .photo-actions {
+    display: flex; gap: 6px; margin-top: 8px;
+  }
+  #info .button-row {
+    display: flex; gap: 6px; margin-top: 12px;
+  }
+  #info .button-row .btn { flex: 1; }
+
+  #share-panel {
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 12px;
+    font-size: 12px;
+    display: flex; gap: 6px; align-items: center;
+  }
+  #share-panel .count {
+    color: var(--muted);
+    margin-right: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #toast {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 14px;
+    background: rgba(20,24,38,0.95);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    color: var(--fg);
+    font-size: 12.5px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 100;
+  }
+  #toast.shown { opacity: 1; }
+
+  #align-panel {
+    top: 70px;
+    right: 210px;
+    width: 280px;
+    max-height: calc(100% - 100px);
+    overflow-y: auto;
+    padding: 12px 14px;
+    font-size: 12px;
+  }
+  .align-section { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.07); }
+  .align-section-label {
+    color: var(--muted); font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+  .hint { color: var(--muted); font-size: 10.5px; line-height: 1.4; margin-top: 4px; }
+  #edit-target-row { display: flex; flex-wrap: wrap; gap: 4px; }
+  .target-btn {
+    background: rgba(255,255,255,0.06);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    line-height: 1.2;
+    font-family: inherit;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .target-btn:hover { background: rgba(255,255,255,0.12); }
+  .target-btn.active {
+    background: rgba(249,115,22,0.25);
+    border-color: rgba(249,115,22,0.55);
+    color: #ffd9b4;
+  }
+  .target-btn .dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); }
+  .edit-mode-row { display: flex; gap: 4px; }
+  .edit-mode-btn { flex: 1; padding: 4px 0; font-size: 11px; }
+  .edit-mode-btn.active {
+    background: rgba(59,130,246,0.28);
+    border-color: rgba(59,130,246,0.55);
+    color: #cfe3ff;
+  }
+  body.trace-cells #app canvas { cursor: crosshair !important; }
+  body.drag-mode-translate #app canvas { cursor: move !important; }
+  body.drag-mode-rotate    #app canvas { cursor: ew-resize !important; }
+  body.drag-mode-scale     #app canvas { cursor: ns-resize !important; }
+  #align-panel h3 {
+    margin: 0 0 8px;
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600;
+  }
+  .align-row {
+    display: grid;
+    grid-template-columns: 64px 1fr 56px;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .align-row label { color: var(--muted); font-size: 11px; }
+  .align-row input[type="range"] {
+    accent-color: var(--accent);
+    width: 100%;
+  }
+  .align-row input[type="number"] {
+    background: rgba(255,255,255,0.05);
+    color: var(--fg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    padding: 3px 5px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    font-family: inherit;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .align-buttons {
+    display: flex; gap: 6px;
+    margin-top: 8px;
+  }
+  .align-buttons .btn { flex: 1; }
+  .anchor-status {
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 5px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .anchor-status.active {
+    background: rgba(249,115,22,0.15);
+    color: #ffd9b4;
+    border: 1px solid rgba(249,115,22,0.4);
+  }
+
+  body.anchor-pick-pile #app canvas { cursor: crosshair !important; }
+  body.anchor-pick-target #app canvas { cursor: cell !important; }
+
+  body.layout-locked #align-panel input[type="range"],
+  body.layout-locked #align-panel input[type="number"],
+  body.layout-locked #align-panel .btn:not(#btn-lock):not(#btn-toggle-overlay):not(#btn-view-top):not(#btn-view-iso):not(.color-mode-btn) {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  #btn-lock {
+    width: 100%;
+    background: rgba(34,197,94,0.16);
+    border-color: rgba(34,197,94,0.45);
+    color: #bbf7d0;
+  }
+  body.layout-locked #btn-lock {
+    background: rgba(220,38,38,0.16);
+    border-color: rgba(220,38,38,0.45);
+    color: #fca5a5;
+  }
+
+  .color-mode-row {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.07);
+  }
+  .color-mode-row .color-mode-label {
+    color: var(--muted); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-right: 2px;
+  }
+  .color-mode-btn { flex: 1; padding: 5px 0; font-size: 11px; }
+  .color-mode-btn.active {
+    background: rgba(249,115,22,0.22);
+    border-color: rgba(249,115,22,0.5);
+    color: #ffd9b4;
+  }
+
+  .has-photo-indicator {
+    color: #f97316;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(249,115,22,0.15);
+    border: 1px solid rgba(249,115,22,0.4);
+  }
+
+  /* Dots removed: hide pile-only UI (groups, serial search, color picker). */
+  #groups { display: none !important; }
+  #search { display: none !important; }
+  .color-mode-row { display: none !important; }
+  #mobile-nav button[data-sheet="groups"] { display: none !important; }
+
+  /* ============================ MOBILE ============================ */
+  #mobile-nav { display: none; }
+  #sheet-backdrop { display: none; }
+
+  @media (max-width: 820px), (pointer: coarse) {
+    /* Compact header */
+    #header {
+      top: 0; left: 0; right: 0;
+      border-radius: 0;
+      padding: 8px 12px;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    #header .title { font-size: 14px; }
+    #header .stats { font-size: 11px; }
+    #search { margin-top: 0; font-size: 16px; padding: 9px 12px; } /* 16px avoids iOS zoom */
+
+    /* Hide desktop-only mouse-help + tooltip */
+    #controls { display: none !important; }
+    #tooltip { display: none !important; }
+
+    /* Turn floating panels into bottom sheets */
+    #groups, #align-panel, #info {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      top: auto;
+      width: auto;
+      max-width: none;
+      max-height: 72vh;
+      margin: 0;
+      border-radius: 16px 16px 0 0;
+      border-left: 0; border-right: 0; border-bottom: 0;
+      transform: translateY(110%);
+      transition: transform 0.25s ease;
+      overflow-y: auto;
+      z-index: 60;
+      padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+      -webkit-overflow-scrolling: touch;
+    }
+    #groups.sheet-open, #align-panel.sheet-open, #info.sheet-open {
+      transform: translateY(0);
+    }
+    /* Info sheet shows on selection without needing nav */
+    #info { display: block; }
+    #info:not(.shown) { transform: translateY(110%); }
+    #info.shown { transform: translateY(0); }
+
+    /* Grab handle on each sheet */
+    #groups::before, #align-panel::before, #info::before {
+      content: "";
+      display: block;
+      width: 40px; height: 4px;
+      background: rgba(255,255,255,0.25);
+      border-radius: 2px;
+      margin: 0 auto 10px;
+    }
+
+    /* Share panel: hide the floating one; its actions move into the nav menu */
+    #share-panel {
+      left: 0; right: 0; bottom: 56px;
+      transform: none;
+      border-radius: 0;
+      flex-wrap: wrap;
+      justify-content: center;
+      transform: translateY(110%);
+      transition: transform 0.25s ease;
+      z-index: 60;
+      padding-bottom: 14px;
+    }
+    #share-panel.sheet-open { transform: translateY(0); }
+
+    /* Touch-friendly buttons */
+    .btn { padding: 10px 12px; font-size: 13px; }
+    .target-btn { padding: 8px 12px; font-size: 13px; }
+    .edit-mode-btn { padding: 9px 0; font-size: 13px; }
+    .color-mode-btn { padding: 9px 0; font-size: 12px; }
+    input[type="range"] { height: 28px; }
+    .legend-row, .group-row { padding: 9px 8px; }
+
+    /* Bottom navigation bar */
+    #mobile-nav {
+      display: flex;
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      height: calc(56px + env(safe-area-inset-bottom, 0px));
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      background: rgba(12, 15, 26, 0.96);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      z-index: 70;
+      backdrop-filter: blur(8px);
+    }
+    #mobile-nav button {
+      flex: 1;
+      background: transparent;
+      border: 0;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      cursor: pointer;
+      padding: 6px 2px;
+    }
+    #mobile-nav button.active { color: var(--accent); }
+    #mobile-nav button .ic { font-size: 18px; line-height: 1; }
+    #mobile-nav button:disabled { opacity: 0.3; }
+
+    #sheet-backdrop {
+      display: block;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+      z-index: 55;
+    }
+    #sheet-backdrop.shown { opacity: 1; pointer-events: auto; }
+
+    /* Make the close button bigger for touch */
+    #info .close { width: 34px; height: 34px; font-size: 22px; top: 10px; right: 12px; }
+  }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="loading">Loading model and pile data…</div>
+
+  <div id="header" class="panel">
+    <div>
+      <div class="title">
+        Midway — TT24-10195 Foundation Layout
+        <span id="mode-badge">Admin</span>
+      </div>
+      <div class="stats" id="stats"></div>
+    </div>
+    <div>
+      <input id="search" type="search" placeholder="Search serial (e.g. P-0123)" autocomplete="off" />
+    </div>
+  </div>
+
+  <div id="groups" class="panel">
+    <h3>Groups</h3>
+    <div id="group-rows"></div>
+  </div>
+
+  <div id="align-panel" class="panel admin-only">
+    <h3>Alignment</h3>
+
+    <div class="align-section">
+      <div class="align-section-label">Module sheet</div>
+      <div id="edit-target-row"></div>
+    </div>
+
+    <div class="align-section">
+      <div class="align-section-label">Drag mode</div>
+      <div class="edit-mode-row">
+        <button class="btn edit-mode-btn" data-mode="">None</button>
+        <button class="btn edit-mode-btn" data-mode="translate">Move</button>
+        <button class="btn edit-mode-btn" data-mode="rotate">Rotate</button>
+        <button class="btn edit-mode-btn" data-mode="scale">Resize</button>
+      </div>
+      <div class="hint" id="drag-hint">Pick a Drag mode, then drag on the terrain. Lock to stop.</div>
+    </div>
+
+    <div class="align-row">
+      <label>Translate X</label>
+      <input type="range" id="align-tx" min="-5" max="5" step="0.005" value="0" />
+      <input type="number" id="align-tx-num" step="0.01" value="0" />
+    </div>
+    <div class="align-row">
+      <label>Translate Z</label>
+      <input type="range" id="align-tz" min="-5" max="5" step="0.005" value="0" />
+      <input type="number" id="align-tz-num" step="0.01" value="0" />
+    </div>
+    <div class="align-row">
+      <label>Rotate °</label>
+      <input type="range" id="align-rot" min="-180" max="180" step="0.5" value="0" />
+      <input type="number" id="align-rot-num" step="0.5" value="0" />
+    </div>
+    <div class="align-row">
+      <label>Scale</label>
+      <input type="range" id="align-scale" min="0.3" max="2" step="0.005" value="1" />
+      <input type="number" id="align-scale-num" step="0.01" value="1" />
+    </div>
+    <div class="align-row">
+      <label>Stretch ↔</label>
+      <input type="range" id="align-stretchx" min="0.2" max="3" step="0.005" value="1" />
+      <input type="number" id="align-stretchx-num" step="0.01" value="1" />
+    </div>
+    <div class="align-row">
+      <label>Stretch ↕</label>
+      <input type="range" id="align-stretchz" min="0.2" max="3" step="0.005" value="1" />
+      <input type="number" id="align-stretchz-num" step="0.01" value="1" />
+    </div>
+    <div class="align-buttons">
+      <button class="btn" id="btn-lock">🔒 Unlock layout</button>
+    </div>
+    <div class="align-buttons">
+      <button class="btn primary" id="btn-anchor">2-pt anchor</button>
+      <button class="btn" id="btn-align-reset">Reset</button>
+    </div>
+    <div class="align-buttons">
+      <button class="btn" id="btn-flip-x">Flip X</button>
+      <button class="btn" id="btn-flip-z">Flip Z</button>
+    </div>
+    <div class="align-buttons">
+      <button class="btn" id="btn-kmz-align">Use KMZ georef</button>
+      <button class="btn" id="btn-toggle-overlay">Show CAD overlay</button>
+    </div>
+    <div class="align-buttons">
+      <button class="btn" id="btn-toggle-modules">Hide modules</button>
+    </div>
+    <div class="align-buttons">
+      <button class="btn primary" id="btn-trace-cells">✛ Trace cells</button>
+    </div>
+    <div class="align-buttons">
+      <button class="btn" id="btn-view-top">Top view</button>
+      <button class="btn" id="btn-view-iso">Iso view</button>
+    </div>
+    <div class="color-mode-row">
+      <span class="color-mode-label">Color by</span>
+      <button class="btn color-mode-btn" data-mode="group">Group</button>
+      <button class="btn color-mode-btn" data-mode="postType">Post type</button>
+      <button class="btn color-mode-btn" data-mode="white">White</button>
+    </div>
+    <div id="anchor-status" class="anchor-status">Tip: drag sliders, or use 2-pt anchor to align by clicking two reference points.</div>
+  </div>
+
+  <div id="controls" class="panel">
+    <div><span class="key">Drag</span> Rotate</div>
+    <div><span class="key">Right-drag</span> Pan</div>
+    <div><span class="key">Scroll</span> Zoom</div>
+    <div><span class="key">Click</span> Pile details</div>
+  </div>
+
+  <div id="info" class="panel">
+    <button class="close" id="info-close" aria-label="Close">×</button>
+    <div class="head">
+      <div>
+        <div class="serial" id="info-serial">P-0000</div>
+        <div id="info-photo-tag" style="display:none; margin-top: 4px;"><span class="has-photo-indicator">PHOTO</span></div>
+      </div>
+    </div>
+
+    <div class="photo-wrap" id="info-photo-wrap">
+      <div class="placeholder">No photo</div>
+    </div>
+    <div class="photo-actions admin-only">
+      <input type="file" id="photo-input" accept="image/*" style="display:none" />
+      <button class="btn" id="photo-upload-btn">Upload photo</button>
+      <button class="btn danger" id="photo-clear-btn">Clear</button>
+    </div>
+
+    <div class="edit-row admin-only">
+      <label for="serial-input">Serial number</label>
+      <input type="text" id="serial-input" placeholder="P-0001" maxlength="64" />
+    </div>
+
+    <div class="row"><span class="k">Pile ID</span><span class="v" id="info-pid">—</span></div>
+
+    <div class="button-row admin-only">
+      <button class="btn primary" id="info-save">Save</button>
+      <button class="btn danger" id="info-reset">Reset</button>
+    </div>
+    <div class="button-row admin-only" id="info-delete-row" style="display:none">
+      <button class="btn danger" id="info-delete" style="flex:1">Delete this cell</button>
+    </div>
+  </div>
+
+  <div id="share-panel" class="panel">
+    <span class="count" id="assign-count">0 assigned</span>
+    <button class="btn" id="btn-copy-link">Copy read-only link</button>
+    <button class="btn admin-only" id="btn-export">Export JSON</button>
+    <button class="btn admin-only" id="btn-import">Import JSON</button>
+    <input type="file" id="import-input" accept="application/json" style="display:none" />
+    <button class="btn admin-only" id="btn-export-align">Export alignment</button>
+    <button class="btn admin-only danger" id="btn-clear-all">Clear all</button>
+  </div>
+
+  <div id="sheet-backdrop"></div>
+
+  <nav id="mobile-nav">
+    <button data-sheet="align-panel" class="admin-only mnav-btn"><span class="ic">⛶</span>Align</button>
+    <button data-sheet="groups" class="mnav-btn"><span class="ic">▦</span>Groups</button>
+    <button id="mnav-top" class="mnav-btn"><span class="ic">⊙</span>Top</button>
+    <button data-sheet="share-panel" class="mnav-btn"><span class="ic">⇪</span>Share</button>
+  </nav>
+
+  <div id="toast"></div>
+
+  <div id="tooltip"></div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./assets/three.module-C7ia6f3T.js",
+      "three/addons/loaders/GLTFLoader.js": "./assets/GLTFLoader-CGtRWvqK.js",
+      "three/addons/controls/OrbitControls.js": "./assets/OrbitControls-Bk8Ii4mF.js"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+    const $ = (id) => document.getElementById(id);
+
+    // ---- Mode + assignment storage -----------------------------------------
+    const urlParams = new URLSearchParams(window.location.search);
+    const READONLY = urlParams.get("view") === "readonly";
+    if (READONLY) {
+      document.body.classList.add("readonly");
+      $("mode-badge").textContent = "Read-only";
+    }
+
+    const STORAGE_KEY = "midway_pile_assignments_v1";
+    // assignments: { [pileId]: { serial?: string, photo?: dataURL, updatedAt: number } }
+    let assignments = {};
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) assignments = JSON.parse(raw) || {};
+    } catch (_) { assignments = {}; }
+
+    function saveAssignments() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(assignments));
+      } catch (err) {
+        toast("Storage full. Export and clear to free space.", 4000);
+        console.error(err);
+      }
+    }
+
+    function assignedCount() {
+      return Object.keys(assignments).filter(k => {
+        const a = assignments[k];
+        return a && (a.photo || a.serial);
+      }).length;
+    }
+    function updateAssignedCount() {
+      $("assign-count").textContent = assignedCount() + " assigned";
+    }
+
+    function displaySerial(p) {
+      const a = assignments[p.pileId];
+      return (a && a.serial) ? a.serial : p.serial;
+    }
+    function hasPhoto(p) {
+      const a = assignments[p.pileId];
+      return !!(a && a.photo);
+    }
+
+    function toast(msg, ms = 2200) {
+      const t = $("toast");
+      t.textContent = msg;
+      t.classList.add("shown");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => t.classList.remove("shown"), ms);
+    }
+
+    // Resize a File to a JPEG data URL, max 800px on long edge.
+    function fileToResizedDataURL(file, maxEdge = 800, quality = 0.78) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight));
+          const w = Math.round(img.naturalWidth * scale);
+          const h = Math.round(img.naturalHeight * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          try {
+            resolve(canvas.toDataURL("image/jpeg", quality));
+          } catch (e) { reject(e); }
+        };
+        img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+        img.src = url;
+      });
+    }
+
+    const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
+    // Cap pixel ratio at 1: hi-DPI displays were paying 4x fragment cost
+    // for no real benefit on a sparse-foliage terrain + 2D point markers.
+    renderer.setPixelRatio(1);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    $("app").appendChild(renderer.domElement);
+
+    // Render-on-demand: avoid the constant 60Hz draw when nothing changes.
+    // The page idles at ~0% CPU/GPU until the user interacts.
+    let renderRequested = true;
+    function requestRender() { renderRequested = true; }
+    window.__requestRender = requestRender;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a14);
+    scene.fog = new THREE.Fog(0x0a0a14, 8, 40);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.05, 200);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 0.4;
+    controls.maxDistance = 25;
+    controls.maxPolarAngle = Math.PI * 0.499;
+    window.__camera = camera;
+    window.__controls = controls;
+
+    // Lighting tuned to show a natural-looking terrain.
+    scene.add(new THREE.HemisphereLight(0xc6d3ff, 0x1a1a25, 0.7));
+    const sun = new THREE.DirectionalLight(0xfff4e6, 1.1);
+    sun.position.set(8, 14, 6);
+    scene.add(sun);
+    const fill = new THREE.DirectionalLight(0xb6c8ff, 0.35);
+    fill.position.set(-6, 6, -4);
+    scene.add(fill);
+
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    let terrain = null;
+    let pileMesh = null;        // InstancedMesh of all pile spheres
+    let pileStalks = null;      // LineSegments for vertical stalks
+    let pileData = [];          // [{serial, group, color, hex, postType, ..., position}]
+    let visibleMask = [];       // bool per pile (toggled by legend/group filters)
+    let markerFloatHeight = 0;  // y-offset from surface to sphere center
+    let markerRadius = 0;
+    const colorFilter = new Set();   // colors hidden
+    const groupFilter = new Set();   // groups hidden
+
+    // Layout transform (PDF coords -> world XZ). baseScale is the auto-fit
+    // scale; the editable transform layers tx/tz/rotDeg/scale on top of that.
+    const TRANSFORM_KEY = "midway_pile_transform_v1";
+    let transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
+    let layoutCtx = null;
+    // Per-group transforms (applied AFTER the global transform, around each
+    // group's own centroid). Persisted under a separate key from `transform`.
+    const GROUP_TRANSFORMS_KEY = "midway_pile_group_transforms_v1";
+    let groupTransforms = {};   // { [groupName]: { tx, tz, rotDeg, scale } }
+    try {
+      const raw = localStorage.getItem(GROUP_TRANSFORMS_KEY);
+      if (raw) groupTransforms = JSON.parse(raw) || {};
+    } catch (_) { groupTransforms = {}; }
+    function saveGroupTransforms() {
+      try { localStorage.setItem(GROUP_TRANSFORMS_KEY, JSON.stringify(groupTransforms)); } catch (_) {}
+    }
+    function gtFor(group) {
+      if (!group) return null;
+      return groupTransforms[group] || null;
+    }
+    function ensureGT(group) {
+      if (!groupTransforms[group]) groupTransforms[group] = { tx: 0, tz: 0, rotDeg: 0, scale: 1 };
+      return groupTransforms[group];
+    }
+
+    // Edit target: 'ALL' (global transform) or a group name (per-group transform).
+    let editTarget = "ALL";
+    // Edit mode: null | 'translate' | 'rotate' | 'scale'. Determines what
+    // mouse drag on the canvas does when the layout is unlocked.
+    let editMode = null;
+    // Group colors — N7-A blue and N8 green per spec, others distinct.
+    const GROUP_COLORS = {
+      'N1':   '#f87171',
+      'N2':   '#fb923c',
+      'N3':   '#facc15',
+      'N4':   '#38bdf8',
+      'N5':   '#a78bfa',
+      'N6':   '#f472b6',
+      'N7-A': '#3b82f6',
+      'N7-B': '#06b6d4',
+      'N8':   '#22c55e',
+      'N9':   '#d946ef',
+    };
+    // Color mode: 'group' (default), 'postType', or 'white'.
+    const COLOR_MODE_KEY = "midway_pile_color_mode_v1";
+    let colorMode = localStorage.getItem(COLOR_MODE_KEY) || "group";
+    // Layout lock: when locked, sliders/buttons that change alignment are disabled.
+    const LOCK_KEY = "midway_pile_layout_locked_v1";
+    let layoutLocked = (localStorage.getItem(LOCK_KEY) ?? "1") === "1";
+    function pileColorHex(p) {
+      if (colorMode === "white") return "#ffffff";
+      if (colorMode === "postType") return p.hex || "#888888";
+      return GROUP_COLORS[p.group] || "#ffffff";
+    } // { baseScale, pdfCenterX, pdfCenterY, modelCenterX, modelCenterZ, bbox, rayTargets }
+    try {
+      const raw = localStorage.getItem(TRANSFORM_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") transform = { ...transform, ...parsed };
+      }
+    } catch (_) {}
+    function saveTransform() {
+      try { localStorage.setItem(TRANSFORM_KEY, JSON.stringify(transform)); }
+      catch (e) { console.error(e); }
+    }
+
+    // ---- Module (stringing-plan) overlay state -----------------------------
+    // Overlay mode: 'dots' (piles) or 'modules' (flat PV-module quads).
+    const OVERLAY_KEY = "midway_overlay_mode_v1";
+    // Dots removed — modules are the only overlay now.
+    let overlayMode = "modules";
+    let moduleMesh = null;          // THREE.Mesh of flat quads
+    let moduleRecords = [];         // [{sheet, srcX, srcY}]
+    let moduleSheets = [];          // [{id, w, h, baseScale, pdfCx, pdfCy, count}]
+    // Per-sheet transforms — each stringing sheet is an independent layer.
+    const SHEET_TRANSFORMS_KEY = "midway_sheet_transforms_v1";
+    let sheetTransforms = {};       // { [sheetId]: {tx,tz,rotDeg,scale,flipX,flipZ} }
+    try {
+      const raw = localStorage.getItem(SHEET_TRANSFORMS_KEY);
+      if (raw) sheetTransforms = JSON.parse(raw) || {};
+    } catch (_) { sheetTransforms = {}; }
+    function saveSheetTransforms() {
+      try { localStorage.setItem(SHEET_TRANSFORMS_KEY, JSON.stringify(sheetTransforms)); } catch (_) {}
+    }
+    function ensureSheetT(id) {
+      if (!sheetTransforms[id]) sheetTransforms[id] = { tx: 0, tz: 0, rotDeg: 0, scale: 1, stretchX: 1, stretchZ: 1, flipX: 1, flipZ: 1 };
+      if (sheetTransforms[id].stretchX === undefined) sheetTransforms[id].stretchX = 1;
+      if (sheetTransforms[id].stretchZ === undefined) sheetTransforms[id].stretchZ = 1;
+      return sheetTransforms[id];
+    }
+    // Per-sheet colors (match the group palette feel).
+    const SHEET_COLORS = { E120: "#38bdf8", E121: "#22c55e", E122: "#f59e0b", E123: "#a855f7" };
+
+    // ---- Load ---------------------------------------------------------------
+    const loader = new GLTFLoader();
+    Promise.all([
+      new Promise((res, rej) => loader.load("models/midway.glb", res, undefined, rej)),
+      fetch("data/piles.json").then(r => {
+        if (!r.ok) throw new Error("Failed to load piles.json (HTTP " + r.status + ")");
+        return r.json();
+      }),
+      // Optional committed assignments. Missing file is fine.
+      fetch("data/pile_assignments.json").then(r => r.ok ? r.json() : null).catch(() => null),
+      // Optional committed alignment transform. Missing file is fine.
+      fetch("data/pile_transform.json").then(r => r.ok ? r.json() : null).catch(() => null),
+      // Optional KMZ georeference (lat/lon overlays + borings).
+      fetch("data/kmz_reference.json").then(r => r.ok ? r.json() : null).catch(() => null),
+      // Module rectangles from the stringing plans (E120-E123). Optional.
+      fetch("data/modules.json").then(r => r.ok ? r.json() : null).catch(() => null),
+      // Auto-traced CAD cells (from the overlay JPEGs). Optional.
+      fetch("data/cad_cells.json").then(r => r.ok ? r.json() : null).catch(() => null),
+    ])
+    .then(([gltf, data, committed, committedTransform, kmz, moduleSet, cadCells]) => {
+      window.__kmz = kmz;
+      window.__moduleSet = moduleSet;
+      window.__cadCells = cadCells;
+      // Merge committed -> localStorage takes precedence so admin edits "win" locally.
+      if (committed && typeof committed === "object" && committed.assignments) {
+        for (const [k, v] of Object.entries(committed.assignments)) {
+          if (!assignments[k]) assignments[k] = v;
+        }
+      }
+      // Committed transform applies only when the user hasn't customized locally.
+      if (committedTransform && typeof committedTransform === "object") {
+        const hasLocal = localStorage.getItem(TRANSFORM_KEY);
+        if (!hasLocal) transform = { ...transform, ...committedTransform };
+      }
+      updateAssignedCount();
+      window.__pdfBounds = data.meta.pdfBounds;
+      // -- Add model to scene
+      const root = gltf.scene;
+      // Apply a subtle material tweak so the surface reads as a topography
+      root.traverse((obj) => {
+        if (obj.isMesh) {
+          obj.castShadow = false;
+          obj.receiveShadow = false;
+          // Soften any flat materials
+          if (obj.material) {
+            obj.material.metalness = 0;
+            if (obj.material.roughness !== undefined) obj.material.roughness = 0.95;
+            obj.material.side = THREE.DoubleSide;
+            obj.material.needsUpdate = true;
+          }
+          terrain = obj; // grab any mesh for raycasting; if multiple, we'll union below
+        }
+      });
+      scene.add(root);
+
+      // Compute bounding box of the model in world space
+      const bbox = new THREE.Box3().setFromObject(root);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      bbox.getSize(size);
+      bbox.getCenter(center);
+
+      // Frame the camera
+      const radius = Math.max(size.x, size.z) * 1.0;
+      camera.position.set(center.x + radius * 0.9, center.y + size.y + radius * 0.8, center.z + radius * 0.9);
+      controls.target.set(center.x, center.y + size.y * 0.3, center.z);
+      controls.update();
+
+      // -- Compute the base auto-fit (PDF -> model XZ, preserving aspect)
+      const pdf = data.meta.pdfBounds;
+      const pdfW = pdf.maxX - pdf.minX;
+      const pdfH = pdf.maxY - pdf.minY;
+      const useW = size.x * 0.92;
+      const useH = size.z * 0.92;
+      const baseScale = Math.min(useW / pdfW, useH / pdfH);
+
+      const rayTargets = [];
+      root.traverse((o) => { if (o.isMesh) rayTargets.push(o); });
+
+      layoutCtx = {
+        baseScale,
+        pdfCenterX: (pdf.minX + pdf.maxX) / 2,
+        pdfCenterY: (pdf.minY + pdf.maxY) / 2,
+        modelCenterX: center.x,
+        modelCenterZ: center.z,
+        bbox,
+        rayTargets,
+      };
+
+      // Bake a heightmap grid once so per-pile surface lookups are O(1)
+      // instead of raycasting the 52K-vertex terrain on every transform.
+      buildHeightmap(rayTargets, bbox);
+
+      // Seed records once; positions get filled in by recomputePileWorldPositions().
+      pileData = data.piles.map((p) => ({
+        ...p,
+        pileId: p.serial,   // stable id keyed off the auto-assigned serial; survives serial overrides
+        position: new THREE.Vector3(0, 0, 0),
+        srcX: p.cx,         // raw PDF coords kept for transform math
+        srcY: p.cy,
+      }));
+      computeGroupCentroidsPDF();
+      recomputePileWorldPositions();
+
+      visibleMask = new Array(pileData.length).fill(true);
+
+      // -- Build a fast THREE.Points cloud (one billboard sprite per pile).
+      // Vastly cheaper than 2932 instanced spheres + 2932 line stalks.
+      markerRadius = Math.max(0.012, size.x * 0.004);
+      markerFloatHeight = markerRadius * 1.6;
+      const floatHeight = markerFloatHeight;
+
+      // Circular sprite (white core, soft halo) generated once on a canvas.
+      const sprCanvas = document.createElement("canvas");
+      sprCanvas.width = sprCanvas.height = 64;
+      {
+        const ctx = sprCanvas.getContext("2d");
+        ctx.clearRect(0, 0, 64, 64);
+        // Outer ring for legibility on light backgrounds
+        ctx.beginPath();
+        ctx.arc(32, 32, 30, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fill();
+        // Inner colored fill
+        ctx.beginPath();
+        ctx.arc(32, 32, 26, 0, Math.PI * 2);
+        ctx.fillStyle = "white";
+        ctx.fill();
+      }
+      const pileSprite = new THREE.CanvasTexture(sprCanvas);
+      pileSprite.minFilter = THREE.LinearFilter;
+      pileSprite.magFilter = THREE.LinearFilter;
+      pileSprite.needsUpdate = true;
+
+      const geo = new THREE.BufferGeometry();
+      const posArr = new Float32Array(pileData.length * 3);
+      const colArr = new Float32Array(pileData.length * 3);
+      geo.setAttribute("position", new THREE.BufferAttribute(posArr, 3));
+      geo.setAttribute("color",    new THREE.BufferAttribute(colArr, 3));
+
+      const pileMat = new THREE.PointsMaterial({
+        size: 14,                 // pixels (sizeAttenuation off = constant screen size)
+        map: pileSprite,
+        vertexColors: true,
+        transparent: true,
+        alphaTest: 0.35,
+        depthWrite: false,
+        sizeAttenuation: false,
+      });
+      pileMesh = new THREE.Points(geo, pileMat);
+      pileMesh.frustumCulled = false;
+      // Initial color buffer fill.
+      {
+        const c = new THREE.Color();
+        for (let i = 0; i < pileData.length; i++) {
+          c.set(pileColorHex(pileData[i]));
+          colArr[i*3+0] = c.r; colArr[i*3+1] = c.g; colArr[i*3+2] = c.b;
+        }
+      }
+      scene.add(pileMesh);
+
+      // Stalks are no longer rendered: 2D points sit on top of the surface
+      // naturally. (`pileStalks` stays null; rebuild functions handle it.)
+      pileStalks = null;
+      rebuildPileMeshFromPositions();
+
+      // Raycaster tolerance for Points (world-space).
+      raycaster.params.Points = { threshold: markerRadius * 1.4 };
+
+      // Highlight ring (used when a pile is selected)
+      const ringGeo = new THREE.RingGeometry(markerRadius * 1.4, markerRadius * 2.0, 28);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.visible = false;
+      scene.add(ring);
+      pileMesh.userData.ring = ring;
+
+      // -- Build module overlay (flat quads) from the stringing plans.
+      if (moduleSet && moduleSet.modules && moduleSet.modules.length) {
+        buildModuleOverlay(moduleSet);
+      }
+      applyOverlayMode();
+      // -- Restore any previously traced cells.
+      buildPlacedGroup();
+
+      // -- UI panels
+      buildGroupUI(data.meta);
+      buildEditTargetUI();
+      syncAlignUIFromTransform();
+      // Color-mode + lock UI state on load
+      document.querySelectorAll(".color-mode-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.mode === colorMode);
+      });
+      applyLockState();
+      // If a non-default transform was loaded, apply it now.
+      if (transform.tx || transform.tz || transform.rotDeg || transform.scale !== 1) {
+        applyTransform({ persist: false });
+      }
+      $("stats").textContent = (cadCells && cadCells.meta)
+        ? `${(cadCells.meta.target || cadCells.meta.total).toLocaleString()} modules · ${cadCells.meta.total.toLocaleString()} cells traced`
+        : (moduleSet && moduleSet.meta
+            ? `${moduleSet.meta.total.toLocaleString()} module rects · ${moduleSet.meta.sheets.length} sheets`
+            : `${pileData.length} piles`);
+
+      $("loading").classList.add("hidden");
+    })
+    .catch((err) => {
+      console.error(err);
+      $("loading").textContent = "Failed to load: " + (err.message || err);
+    });
+
+    // Selected pile index (hoisted so applyTransform can refresh it).
+    let selectedIndex = -1;
+
+    // ---- Layout transform --------------------------------------------------
+    // Maps PDF (srcX, srcY) -> world (X, Z) via the current `transform`.
+    //   srcX, srcY are raw PDF page coordinates (y down).
+    //   We center on PDF center, flip Y, scale by baseScale*transform.scale,
+    //   rotate around Y by transform.rotDeg, then translate by
+    //   (modelCenterX + tx, modelCenterZ + tz). Y is set by raycasting down.
+    const _downRay = new THREE.Raycaster();
+    const _downDir = new THREE.Vector3(0, -1, 0);
+    // Cached values updated once per recompute pass — Math.cos / Math.sin
+    // are 2-3x more expensive than the multiply-adds in the hot loop, so we
+    // hoist them out and reuse across all 2932 piles.
+    let _gCos = 1, _gSin = 0, _gScaleX = 1, _gScaleZ = 1;
+    let _gTx = 0, _gTz = 0;
+    function refreshGlobalTrigCache() {
+      const rad = (transform.rotDeg || 0) * Math.PI / 180;
+      _gCos = Math.cos(rad); _gSin = Math.sin(rad);
+      const sc = transform.scale || 1;
+      _gScaleX = layoutCtx.baseScale * sc * (transform.geoStretchX || 1);
+      _gScaleZ = -layoutCtx.baseScale * sc * (transform.geoStretchZ || 1);
+      _gTx = transform.tx || 0;
+      _gTz = transform.tz || 0;
+    }
+    // Output: writes into out.x / out.z. Returns the same object.
+    const _xzOut = { x: 0, z: 0 };
+    function pdfToGlobalXZ(srcX, srcY, out) {
+      const dx = (srcX - layoutCtx.pdfCenterX) * _gScaleX;
+      const dz = (srcY - layoutCtx.pdfCenterY) * _gScaleZ;
+      out.x = _gTx + (dx * _gCos - dz * _gSin);
+      out.z = _gTz + (dx * _gSin + dz * _gCos);
+      return out;
+    }
+    // Per-group trig cache: { [group]: { cos, sin, scale, tx, tz } }
+    let _groupTrig = {};
+    function refreshGroupTrigCache() {
+      _groupTrig = {};
+      for (const g of Object.keys(groupTransforms)) {
+        const gt = groupTransforms[g];
+        if (!gt) continue;
+        const r = (gt.rotDeg || 0) * Math.PI / 180;
+        _groupTrig[g] = {
+          cos: Math.cos(r), sin: Math.sin(r),
+          scale: (gt.scale === undefined ? 1 : gt.scale),
+          tx: gt.tx || 0, tz: gt.tz || 0,
+          active: !!(gt.tx || gt.tz || gt.rotDeg || (gt.scale !== undefined && gt.scale !== 1)),
+        };
+      }
+    }
+    function pdfToWorldXZ(srcX, srcY, group, out) {
+      out = out || _xzOut;
+      pdfToGlobalXZ(srcX, srcY, out);
+      const gt = _groupTrig[group];
+      if (gt && gt.active) {
+        const c = groupCentroidsGlobal[group];
+        if (c) {
+          const lx = out.x - c.x;
+          const lz = out.z - c.z;
+          const rx = (lx * gt.cos - lz * gt.sin) * gt.scale;
+          const rz = (lx * gt.sin + lz * gt.cos) * gt.scale;
+          out.x = rx + c.x + gt.tx;
+          out.z = rz + c.z + gt.tz;
+        }
+      }
+      out.x += layoutCtx.modelCenterX;
+      out.z += layoutCtx.modelCenterZ;
+      return out;
+    }
+    // Group centroids in PDF coords (cached) and in global-transform coords
+    // (recomputed on every transform change).
+    let groupCentroidsPDF = {};
+    let groupCentroidsGlobal = {};
+    function computeGroupCentroidsPDF() {
+      const sums = {};
+      for (const p of pileData) {
+        const g = p.group; if (!g) continue;
+        if (!sums[g]) sums[g] = { x: 0, y: 0, n: 0 };
+        sums[g].x += p.srcX; sums[g].y += p.srcY; sums[g].n++;
+      }
+      groupCentroidsPDF = {};
+      for (const g of Object.keys(sums)) {
+        groupCentroidsPDF[g] = { x: sums[g].x / sums[g].n, y: sums[g].y / sums[g].n };
+      }
+    }
+    function recomputeGroupCentroidsGlobal() {
+      groupCentroidsGlobal = {};
+      const tmp = { x: 0, z: 0 };
+      for (const g of Object.keys(groupCentroidsPDF)) {
+        const c = groupCentroidsPDF[g];
+        pdfToGlobalXZ(c.x, c.y, tmp);
+        groupCentroidsGlobal[g] = { x: tmp.x, z: tmp.z };
+      }
+    }
+    // ---- Heightmap -------------------------------------------------------
+    // A coarse 2D grid of surface heights over the model's XZ bounds, baked
+    // once from the terrain's vertices. sampleHeight() is O(1), so the whole
+    // 2932-pile recompute is pure math + grid lookups — no raycasting.
+    let heightmap = null;
+    function buildHeightmap(rayTargets, bbox) {
+      const cols = 384, rows = 384;
+      const minX = bbox.min.x, minZ = bbox.min.z;
+      const w = (bbox.max.x - minX) || 1;
+      const d = (bbox.max.z - minZ) || 1;
+      const data = new Float32Array(cols * rows).fill(NaN);
+      const v = new THREE.Vector3();
+      for (const mesh of rayTargets) {
+        const pos = mesh.geometry && mesh.geometry.attributes && mesh.geometry.attributes.position;
+        if (!pos) continue;
+        mesh.updateWorldMatrix(true, false);
+        const mat = mesh.matrixWorld;
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(mat);
+          let cx = ((v.x - minX) / w * (cols - 1)) | 0;
+          let cz = ((v.z - minZ) / d * (rows - 1)) | 0;
+          if (cx < 0) cx = 0; else if (cx >= cols) cx = cols - 1;
+          if (cz < 0) cz = 0; else if (cz >= rows) cz = rows - 1;
+          const idx = cz * cols + cx;
+          // Keep the topmost surface (handles slight overlaps / overhangs).
+          if (Number.isNaN(data[idx]) || v.y > data[idx]) data[idx] = v.y;
+        }
+      }
+      // Fill empty cells by averaging known neighbors over a few passes.
+      for (let pass = 0; pass < 12; pass++) {
+        let filled = 0;
+        const copy = data.slice();
+        for (let z = 0; z < rows; z++) {
+          for (let x = 0; x < cols; x++) {
+            const idx = z * cols + x;
+            if (!Number.isNaN(copy[idx])) continue;
+            let sum = 0, n = 0;
+            for (let dz = -1; dz <= 1; dz++) {
+              const nz = z + dz; if (nz < 0 || nz >= rows) continue;
+              for (let dx = -1; dx <= 1; dx++) {
+                const nx = x + dx; if (nx < 0 || nx >= cols) continue;
+                const nv = copy[nz * cols + nx];
+                if (!Number.isNaN(nv)) { sum += nv; n++; }
+              }
+            }
+            if (n) { data[idx] = sum / n; filled++; }
+          }
+        }
+        if (!filled) break;
+      }
+      const fallback = bbox.min.y + (bbox.max.y - bbox.min.y) * 0.5;
+      for (let i = 0; i < data.length; i++) if (Number.isNaN(data[i])) data[i] = fallback;
+      heightmap = { minX, minZ, w, d, cols, rows, data, fallback };
+    }
+    function sampleHeight(x, z) {
+      const hm = heightmap;
+      if (!hm) return 0;
+      let cx = Math.round((x - hm.minX) / hm.w * (hm.cols - 1));
+      let cz = Math.round((z - hm.minZ) / hm.d * (hm.rows - 1));
+      if (cx < 0) cx = 0; else if (cx >= hm.cols) cx = hm.cols - 1;
+      if (cz < 0) cz = 0; else if (cz >= hm.rows) cz = hm.rows - 1;
+      return hm.data[cz * hm.cols + cx];
+    }
+
+    function recomputePileWorldPositions() {
+      if (!layoutCtx || !pileData.length) return;
+      refreshGlobalTrigCache();
+      refreshGroupTrigCache();
+      recomputeGroupCentroidsGlobal();
+      const out = _xzOut;
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        pdfToWorldXZ(p.srcX, p.srcY, p.group, out);
+        p.position.set(out.x, sampleHeight(out.x, out.z), out.z);
+      }
+    }
+    // Push the current pileData[].position into the InstancedMesh + stalk geo.
+    // Push pileData positions into the Points geometry buffer.
+    // Hidden piles get y = -1e6 so they're off-screen but the indices stay
+    // stable for raycaster hits / filter toggling.
+    const HIDDEN_Y = -1e6;
+    function rebuildPileMeshFromPositions() {
+      if (!pileMesh) return;
+      const pos = pileMesh.geometry.attributes.position.array;
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        const visible = visibleMask[i] !== false;
+        pos[i*3+0] = p.position.x;
+        pos[i*3+1] = visible ? (p.position.y + markerFloatHeight) : HIDDEN_Y;
+        pos[i*3+2] = p.position.z;
+      }
+      pileMesh.geometry.attributes.position.needsUpdate = true;
+      requestRender();
+    }
+    function applyTransform({ persist = true, interactive: int = false } = {}) {
+      // CAD overlay layer: transform the draped image group directly.
+      if (editTarget === "CAD") {
+        applyCadTransform();
+        if (!int) updateAlignSliderLabels();
+        if (persist) saveCadTransform();
+        return;
+      }
+      // Heightmap lookups make recompute O(1)/pile, so there's no longer an
+      // interactive vs settle distinction — every pass uses the real surface.
+      if (overlayMode === "modules") {
+        recomputeModulePositions();
+        if (!int) updateAlignSliderLabels();
+        if (persist) persistActive();
+        return;
+      }
+      recomputePileWorldPositions();
+      rebuildPileMeshFromPositions();
+      if (selectedIndex >= 0 && selectedIndex < pileData.length) {
+        const p = pileData[selectedIndex];
+        const ring = pileMesh && pileMesh.userData && pileMesh.userData.ring;
+        if (ring && ring.visible) ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
+      }
+      if (!int) updateAlignSliderLabels();
+      if (persist) saveTransform();
+    }
+    // rAF-coalesced transform apply: collapses multiple pointer-move /
+    // slider-input ticks per frame into a single GPU upload.
+    let rafPending = false;
+    function scheduleApplyTransformInteractive() {
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => {
+        rafPending = false;
+        applyTransform({ persist: false, interactive: true });
+      });
+    }
+    function resetTransform() {
+      if (editTarget === "CAD") {
+        cadTransform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, stretchX: 1, stretchZ: 1, flipX: 1, flipZ: 1 };
+        saveCadTransform();
+        applyCadTransform();
+        syncAlignUIFromTransform();
+        return;
+      }
+      if (overlayMode === "modules") {
+        delete sheetTransforms[editTarget];
+        ensureSheetT(editTarget);  // reset to identity defaults
+        saveSheetTransforms();
+      } else if (editTarget === "ALL") {
+        transform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, geoStretchX: 1, geoStretchZ: 1 };
+      } else {
+        delete groupTransforms[editTarget];
+        saveGroupTransforms();
+      }
+      applyTransform();
+      syncAlignUIFromTransform();
+    }
+
+    // ---- Module overlay (flat PV-module quads) -----------------------------
+    function buildModuleOverlay(set) {
+      const seq = {};
+      moduleRecords = set.modules.map(m => {
+        const sid = (set.meta.sheets[m[0]] || {}).id || ("S" + m[0]);
+        seq[sid] = (seq[sid] || 0) + 1;
+        return { s: m[0], x: m[1], y: m[2], id: `${sid}-${String(seq[sid]).padStart(4, "0")}` };
+      });
+      // Per-sheet layout context: fit each sheet's module bbox into the model
+      // footprint (preserving aspect), so an un-aligned sheet still shows up
+      // sensibly. The user then nudges each sheet with the transform tools.
+      const bbox = layoutCtx.bbox, size = bbox.getSize(new THREE.Vector3());
+      // Stagger un-positioned sheets into quadrants so they don't all stack
+      // on top of each other — makes each easy to grab and align.
+      const stagger = [[-0.22, -0.22], [0.22, -0.22], [-0.22, 0.22], [0.22, 0.22]];
+      moduleSheets = set.meta.sheets.map((sh, idx) => {
+        const b = sh.bounds || { minX: 0, maxX: 1, minY: 0, maxY: 1 };
+        const pw = (b.maxX - b.minX) || 1, ph = (b.maxY - b.minY) || 1;
+        const baseScale = Math.min(size.x * 0.45 / pw, size.z * 0.45 / ph);
+        if (!sheetTransforms[sh.id]) {
+          const s = stagger[idx % 4];
+          sheetTransforms[sh.id] = { tx: s[0]*size.x, tz: s[1]*size.z, rotDeg: 0, scale: 1, stretchX: 1, stretchZ: 1, flipX: 1, flipZ: 1 };
+        }
+        return {
+          id: sh.id, idx, w: sh.w || 12.8, h: sh.h || 5.9,
+          baseScale, pdfCx: (b.minX + b.maxX) / 2, pdfCy: (b.minY + b.maxY) / 2,
+          count: sh.count,
+        };
+      });
+      // Geometry: 4 verts + 2 tris (6 indices) per module.
+      const N = moduleRecords.length;
+      const positions = new Float32Array(N * 4 * 3);
+      const colors = new Float32Array(N * 4 * 3);
+      const indices = new Uint32Array(N * 6);
+      for (let i = 0; i < N; i++) {
+        const sheet = moduleSheets[moduleRecords[i].s];
+        const c = new THREE.Color(SHEET_COLORS[sheet ? sheet.id : ""] || "#38bdf8");
+        for (let k = 0; k < 4; k++) {
+          colors[(i*4+k)*3+0] = c.r; colors[(i*4+k)*3+1] = c.g; colors[(i*4+k)*3+2] = c.b;
+        }
+        const o = i * 4;
+        indices[i*6+0]=o; indices[i*6+1]=o+1; indices[i*6+2]=o+2;
+        indices[i*6+3]=o; indices[i*6+4]=o+2; indices[i*6+5]=o+3;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+      geo.setIndex(new THREE.BufferAttribute(indices, 1));
+      const mat = new THREE.MeshBasicMaterial({
+        vertexColors: true, side: THREE.DoubleSide,
+        transparent: true, opacity: 0.95, depthWrite: false,
+      });
+      moduleMesh = new THREE.Mesh(geo, mat);
+      moduleMesh.frustumCulled = false;
+      moduleMesh.renderOrder = 2;
+      scene.add(moduleMesh);
+      recomputeModulePositions();
+      applyModuleTints();   // mark any already-assigned cells
+    }
+
+    // Transform a module's PDF point into world XZ via its sheet's transform.
+    // stretchX/stretchZ apply independent (non-uniform) scaling along the
+    // sheet's local axes so the field can be fit to the model.
+    function sheetPdfToWorldXZ(sheet, st, srcX, srcY, out) {
+      const sx = (st.scale || 1) * (st.stretchX || 1) * (st.flipX || 1);
+      const sz = (st.scale || 1) * (st.stretchZ || 1) * (st.flipZ || 1);
+      const dx = (srcX - sheet.pdfCx) * sheet.baseScale * sx;
+      const dz = -(srcY - sheet.pdfCy) * sheet.baseScale * sz;
+      const rad = (st.rotDeg || 0) * Math.PI / 180;
+      const cs = Math.cos(rad), sn = Math.sin(rad);
+      out.x = layoutCtx.modelCenterX + (st.tx || 0) + (dx * cs - dz * sn);
+      out.z = layoutCtx.modelCenterZ + (st.tz || 0) + (dx * sn + dz * cs);
+      return out;
+    }
+    const MOD_LIFT = 0.004;
+    function recomputeModulePositions() {
+      if (!moduleMesh) return;
+      const pos = moduleMesh.geometry.attributes.position.array;
+      const o1 = _xzOut, c2 = { x: 0, z: 0 };
+      for (let i = 0; i < moduleRecords.length; i++) {
+        const m = moduleRecords[i];
+        const sheet = moduleSheets[m.s];
+        const st = ensureSheetT(sheet.id);
+        // Half-extents in world units stretch with the field so cells stay
+        // contiguous after a non-uniform stretch.
+        const hw = sheet.w * 0.5 * sheet.baseScale * (st.scale || 1) * (st.stretchX || 1);
+        const hh = sheet.h * 0.5 * sheet.baseScale * (st.scale || 1) * (st.stretchZ || 1);
+        const rad = (st.rotDeg || 0) * Math.PI / 180;
+        const cs = Math.cos(rad), sn = Math.sin(rad);
+        sheetPdfToWorldXZ(sheet, st, m.x, m.y, o1);
+        const cxw = o1.x, czw = o1.z;
+        // 4 corners (local +/-hw,+/-hh) rotated into world, Y from heightmap.
+        const cor = [[-hw,-hh],[hw,-hh],[hw,hh],[-hw,hh]];
+        for (let k = 0; k < 4; k++) {
+          const lx = cor[k][0], lz = cor[k][1];
+          const wx = cxw + (lx * cs - lz * sn);
+          const wz = czw + (lx * sn + lz * cs);
+          const base = (i*4+k)*3;
+          pos[base+0] = wx;
+          pos[base+1] = sampleHeight(wx, wz) + MOD_LIFT;
+          pos[base+2] = wz;
+        }
+      }
+      moduleMesh.geometry.attributes.position.needsUpdate = true;
+      moduleMesh.geometry.computeBoundingSphere();
+      requestRender();
+    }
+    // Module selection + highlight (brighten the picked cell's 4 vertices).
+    let moduleHighlightIdx = -1;
+    let moduleHighlightOrig = null;
+    function clearModuleHighlight() {
+      if (moduleHighlightIdx < 0 || !moduleMesh) return;
+      const col = moduleMesh.geometry.attributes.color.array;
+      const o = moduleHighlightIdx * 4 * 3;
+      for (let k = 0; k < 12; k++) col[o + k] = moduleHighlightOrig[k];
+      moduleMesh.geometry.attributes.color.needsUpdate = true;
+      moduleHighlightIdx = -1; moduleHighlightOrig = null;
+      requestRender();
+    }
+    function highlightModule(idx) {
+      if (!moduleMesh) return;
+      clearModuleHighlight();
+      const col = moduleMesh.geometry.attributes.color.array;
+      const o = idx * 4 * 3;
+      moduleHighlightOrig = col.slice(o, o + 12);
+      for (let k = 0; k < 4; k++) {       // bright white highlight
+        col[o + k*3 + 0] = 1; col[o + k*3 + 1] = 1; col[o + k*3 + 2] = 1;
+      }
+      moduleMesh.geometry.attributes.color.needsUpdate = true;
+      moduleHighlightIdx = idx;
+      requestRender();
+    }
+    function selectModule(idx) {
+      const m = moduleRecords[idx];
+      if (!m) return;
+      currentSel = { id: m.id, defaultSerial: m.id, moduleIdx: idx };
+      selectedIndex = -1;
+      if (pileMesh && pileMesh.userData.ring) pileMesh.userData.ring.visible = false;
+      highlightModule(idx);
+      populateInfoPanel();
+    }
+    // Tint each module: sheet color normally, marker color if it has a
+    // serial/photo assigned — so completed cells stand out.
+    const _markColor = new THREE.Color("#fde047");  // amber-yellow = has data
+    function applyModuleTints() {
+      if (!moduleMesh) return;
+      const col = moduleMesh.geometry.attributes.color.array;
+      const sheetCol = {};
+      const c = new THREE.Color();
+      for (let i = 0; i < moduleRecords.length; i++) {
+        const m = moduleRecords[i];
+        const has = !!assignments[m.id];
+        let r, g, b;
+        if (has) { r = _markColor.r; g = _markColor.g; b = _markColor.b; }
+        else {
+          const sid = moduleSheets[m.s].id;
+          if (!sheetCol[sid]) sheetCol[sid] = new THREE.Color(SHEET_COLORS[sid] || "#38bdf8");
+          r = sheetCol[sid].r; g = sheetCol[sid].g; b = sheetCol[sid].b;
+        }
+        const o = i * 4 * 3;
+        for (let k = 0; k < 4; k++) { col[o+k*3]=r; col[o+k*3+1]=g; col[o+k*3+2]=b; }
+      }
+      moduleMesh.geometry.attributes.color.needsUpdate = true;
+      requestRender();
+    }
+
+    function applyOverlayMode() {
+      if (pileMesh) pileMesh.visible = overlayMode === "dots";
+      if (pileMesh && pileMesh.userData.stalks) pileMesh.userData.stalks.visible = overlayMode === "dots";
+      if (moduleMesh) moduleMesh.visible = overlayMode === "modules";
+      try { localStorage.setItem(OVERLAY_KEY, overlayMode); } catch (_) {}
+      requestRender();
+    }
+
+    // ---- Traced cells -----------------------------------------------------
+    // User-placed, clickable cells drawn directly over the CAD/terrain. Each
+    // is a flat quad on the surface, selectable and populatable like a pile.
+    const PLACED_KEY = "midway_placed_cells_v1";
+    let placedCells = [];        // [{id, x, z}]  (world XZ; Y from heightmap)
+    let placedGroup = null;
+    let placedSize = 0.03;       // world half-size of a cell quad
+    let traceMode = false;
+    let placedSeq = 0;
+    try {
+      const raw = localStorage.getItem(PLACED_KEY);
+      if (raw) { placedCells = JSON.parse(raw) || []; }
+    } catch (_) { placedCells = []; }
+    function savePlacedCells() { try { localStorage.setItem(PLACED_KEY, JSON.stringify(placedCells)); } catch (_) {} }
+
+    function placedCellColor(rec) {
+      return assignments[rec.id] ? "#fde047" : "#ffffff";
+    }
+    function makePlacedMesh(rec) {
+      const g = new THREE.PlaneGeometry(placedSize * 2, placedSize * 2);
+      g.rotateX(-Math.PI / 2);
+      const m = new THREE.MeshBasicMaterial({
+        color: placedCellColor(rec), transparent: true, opacity: 0.55,
+        depthWrite: false, side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(g, m);
+      const y = sampleHeight(rec.x, rec.z) + 0.006;
+      mesh.position.set(rec.x, y, rec.z);
+      mesh.renderOrder = 3;
+      mesh.userData.cellId = rec.id;
+      // thin border for visibility
+      const eg = new THREE.EdgesGeometry(g);
+      const line = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.7 }));
+      mesh.add(line);
+      return mesh;
+    }
+    function buildPlacedGroup() {
+      if (placedGroup) { scene.remove(placedGroup); }
+      placedGroup = new THREE.Group();
+      placedGroup.name = "Traced cells";
+      placedSize = Math.max(0.02, (layoutCtx ? (layoutCtx.bbox.max.x - layoutCtx.bbox.min.x) : 5) * 0.006);
+      placedSeq = placedCells.reduce((mx, c) => Math.max(mx, parseInt((c.id||"").replace(/\D/g,"")) || 0), 0);
+      placedCells.forEach(rec => placedGroup.add(makePlacedMesh(rec)));
+      scene.add(placedGroup);
+      requestRender();
+    }
+    function refreshPlacedColors() {
+      if (!placedGroup) return;
+      placedGroup.children.forEach(mesh => {
+        const rec = placedCells.find(c => c.id === mesh.userData.cellId);
+        if (rec) mesh.material.color.set(placedCellColor(rec));
+      });
+      requestRender();
+    }
+    function addPlacedCell(x, z) {
+      placedSeq++;
+      const rec = { id: `C-${String(placedSeq).padStart(4, "0")}`, x, z };
+      placedCells.push(rec);
+      savePlacedCells();
+      if (!placedGroup) buildPlacedGroup();
+      else placedGroup.add(makePlacedMesh(rec));
+      requestRender();
+      return rec;
+    }
+    function deletePlacedCell(id) {
+      const i = placedCells.findIndex(c => c.id === id);
+      if (i < 0) return;
+      placedCells.splice(i, 1);
+      savePlacedCells();
+      if (assignments[id]) { delete assignments[id]; saveAssignments(); updateAssignedCount(); }
+      if (placedGroup) {
+        const mesh = placedGroup.children.find(m => m.userData.cellId === id);
+        if (mesh) placedGroup.remove(mesh);
+      }
+      requestRender();
+    }
+    function selectPlacedCell(id) {
+      const rec = placedCells.find(c => c.id === id);
+      if (!rec) return;
+      currentSel = { id: rec.id, defaultSerial: rec.id, placed: true };
+      selectedIndex = -1;
+      clearModuleHighlight();
+      if (pileMesh && pileMesh.userData.ring) pileMesh.userData.ring.visible = false;
+      populateInfoPanel();
+      $("info-delete-row").style.display = "";
+    }
+    function setTraceMode(on) {
+      traceMode = on;
+      document.body.classList.toggle("trace-cells", traceMode);
+      const b = $("btn-trace-cells");
+      b.classList.toggle("primary", !traceMode);
+      b.textContent = traceMode ? "✓ Done tracing" : "✛ Trace cells";
+      toast(traceMode ? "Trace mode: click on the CAD to drop cells" : "Trace mode off");
+    }
+    $("btn-trace-cells").addEventListener("click", () => setTraceMode(!traceMode));
+    $("info-delete").addEventListener("click", () => {
+      if (currentSel && currentSel.placed) {
+        const id = currentSel.id;
+        deletePlacedCell(id);
+        $("info").classList.remove("shown");
+        $("info-delete-row").style.display = "none";
+        currentSel = null;
+        toast("Cell deleted");
+      }
+    });
+
+    // Edit-target buttons. In dots mode: All + groups. In modules mode: the
+    // stringing sheets (E120-E123), each an independent layer.
+    function buildEditTargetUI() {
+      const container = $("edit-target-row");
+      container.innerHTML = "";
+      if (overlayMode === "modules") {
+        moduleSheets.forEach(sh => {
+          const b = document.createElement("button");
+          b.className = "target-btn";
+          b.dataset.target = sh.id;
+          b.innerHTML = `<span class="dot" style="background:${SHEET_COLORS[sh.id] || '#38bdf8'}"></span>${sh.id}`;
+          container.appendChild(b);
+        });
+        // Default edit target to first sheet if current isn't a sheet/CAD.
+        if (editTarget !== "CAD" && !moduleSheets.some(s => s.id === editTarget)) {
+          editTarget = moduleSheets.length ? moduleSheets[0].id : "ALL";
+        }
+      } else {
+        const all = document.createElement("button");
+        all.className = "target-btn";
+        all.dataset.target = "ALL";
+        all.textContent = "All";
+        container.appendChild(all);
+        const order = ["N1","N2","N3","N4","N5","N6","N7-A","N7-B","N8","N9"];
+        order.forEach(g => {
+          if (!groupCentroidsPDF[g]) return;
+          const b = document.createElement("button");
+          b.className = "target-btn";
+          b.dataset.target = g;
+          b.innerHTML = `<span class="dot" style="background:${GROUP_COLORS[g] || '#fff'}"></span>${g}`;
+          container.appendChild(b);
+        });
+        if (editTarget !== "ALL" && editTarget !== "CAD" && !groupCentroidsPDF[editTarget]) editTarget = "ALL";
+      }
+      // CAD overlay chip (only when the overlay is currently shown).
+      if (cadOverlayGroup && cadOverlayGroup.visible) {
+        const b = document.createElement("button");
+        b.className = "target-btn";
+        b.dataset.target = "CAD";
+        b.innerHTML = `<span class="dot" style="background:#e5e7eb"></span>CAD`;
+        container.appendChild(b);
+      }
+      container.querySelectorAll(".target-btn").forEach(b => {
+        b.addEventListener("click", () => setEditTarget(b.dataset.target));
+      });
+      refreshEditTargetActive();
+    }
+    function refreshEditTargetActive() {
+      document.querySelectorAll("#edit-target-row .target-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.target === editTarget);
+      });
+    }
+    function setEditTarget(t) {
+      editTarget = t;
+      refreshEditTargetActive();
+      syncAlignUIFromTransform();
+      const note = (t === "ALL")
+        ? "Editing the whole layout."
+        : `Editing ${t} (relative to whole-layout placement).`;
+      $("drag-hint").textContent = `${note} Pick a Drag mode and drag on the terrain.`;
+    }
+    function setEditMode(m) {
+      editMode = m || null;
+      document.querySelectorAll(".edit-mode-btn").forEach(b => {
+        b.classList.toggle("active", (b.dataset.mode || null) === editMode);
+      });
+      document.body.classList.toggle("drag-mode-translate", editMode === "translate");
+      document.body.classList.toggle("drag-mode-rotate", editMode === "rotate");
+      document.body.classList.toggle("drag-mode-scale", editMode === "scale");
+    }
+    document.querySelectorAll(".edit-mode-btn").forEach(b => {
+      b.addEventListener("click", () => {
+        if (layoutLocked) { toast("Layout is locked"); return; }
+        setEditMode(b.dataset.mode || null);
+      });
+    });
+
+    // Refresh per-point colors after a colorMode change.
+    function recolorPiles() {
+      if (!pileMesh) return;
+      const c = new THREE.Color();
+      const col = pileMesh.geometry.attributes.color.array;
+      for (let i = 0; i < pileData.length; i++) {
+        c.set(pileColorHex(pileData[i]));
+        col[i*3+0] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
+      }
+      pileMesh.geometry.attributes.color.needsUpdate = true;
+      requestRender();
+    }
+
+    // Apply lock state to the alignment UI.
+    function applyLockState() {
+      document.body.classList.toggle("layout-locked", layoutLocked);
+      const ids = [
+        "align-tx", "align-tz", "align-rot", "align-scale", "align-stretchx", "align-stretchz",
+        "align-tx-num", "align-tz-num", "align-rot-num", "align-scale-num", "align-stretchx-num", "align-stretchz-num",
+        "btn-align-reset", "btn-anchor", "btn-kmz-align",
+        "btn-flip-x", "btn-flip-z",
+      ];
+      ids.forEach(id => { const el = $(id); if (el) el.disabled = layoutLocked; });
+      const lockBtn = $("btn-lock");
+      if (lockBtn) lockBtn.textContent = layoutLocked ? "🔒 Unlock layout" : "🔓 Lock layout";
+      try { localStorage.setItem(LOCK_KEY, layoutLocked ? "1" : "0"); } catch (_) {}
+      // If a user was mid-anchor when they locked, cancel that flow.
+      if (layoutLocked && anchor && anchor.active) exitAnchorMode("Layout locked.");
+    }
+
+    // ---- UI -----------------------------------------------------------------
+    function buildLegendUI(meta) {
+      const container = $("legend-rows");
+      container.innerHTML = "";
+      meta.legend.forEach((row) => {
+        const count = meta.colorCounts[row.color] || 0;
+        const el = document.createElement("div");
+        el.className = "legend-row";
+        el.dataset.color = row.color;
+        el.innerHTML = `
+          <div class="swatch" style="background:${row.hex}"></div>
+          <div>
+            <div class="name">${row.color}</div>
+            <div class="type">${row.postType}</div>
+          </div>
+          <div class="count">${count}</div>
+          <div class="count">${row.length}"</div>
+        `;
+        el.addEventListener("click", () => {
+          if (colorFilter.has(row.color)) colorFilter.delete(row.color);
+          else colorFilter.add(row.color);
+          el.classList.toggle("off");
+          applyFilters();
+        });
+        container.appendChild(el);
+      });
+    }
+    function buildGroupUI(meta) {
+      const order = ["N1","N2","N3","N4","N5","N6","N7-A","N7-B","N8","N9"];
+      const container = $("group-rows");
+      container.innerHTML = "";
+      order.forEach((g) => {
+        const count = meta.groupCounts[g] || 0;
+        if (count === 0) return;
+        const el = document.createElement("div");
+        el.className = "group-row";
+        el.dataset.group = g;
+        const hex = GROUP_COLORS[g] || "#ffffff";
+        el.innerHTML = `
+          <span class="group-swatch" style="background:${hex}"></span>
+          <span class="group-name">${g}</span>
+          <span class="count">${count}</span>
+        `;
+        el.addEventListener("click", () => {
+          if (groupFilter.has(g)) groupFilter.delete(g);
+          else groupFilter.add(g);
+          el.classList.toggle("off");
+          applyFilters();
+        });
+        container.appendChild(el);
+      });
+    }
+
+    function applyFilters() {
+      if (!pileMesh) return;
+      const pos = pileMesh.geometry.attributes.position.array;
+      let visibleCount = 0;
+      for (let i = 0; i < pileData.length; i++) {
+        const p = pileData[i];
+        const isVisible = !colorFilter.has(p.color) && !groupFilter.has(p.group);
+        visibleMask[i] = isVisible;
+        pos[i*3+0] = p.position.x;
+        pos[i*3+1] = isVisible ? (p.position.y + markerFloatHeight) : HIDDEN_Y;
+        pos[i*3+2] = p.position.z;
+        if (isVisible) visibleCount++;
+      }
+      pileMesh.geometry.attributes.position.needsUpdate = true;
+      $("stats").textContent = `${visibleCount} / ${pileData.length} piles visible`;
+      requestRender();
+    }
+
+    // ---- Interaction --------------------------------------------------------
+    let hoverIndex = -1;
+
+    let _lastHover = 0;
+    function onPointerMove(e) {
+      if (dragState || (anchor && anchor.active)) return;
+      const now = performance.now();
+      if (now - _lastHover < 40) return;   // throttle hover-picking ~25Hz
+      _lastHover = now;
+      const r = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const tip = $("tooltip");
+      // Hover auto-traced CAD cells first (when the CAD overlay is shown).
+      if (autoCellMesh && cadOverlayGroup && cadOverlayGroup.visible) {
+        const ah = raycaster.intersectObject(autoCellMesh);
+        if (ah.length && ah[0].faceIndex != null) {
+          const i = Math.floor(ah[0].faceIndex / 2);
+          const rec = autoCellRecords[i];
+          const a = (rec && assignments[rec.id]) || {};
+          renderer.domElement.style.cursor = "pointer";
+          tip.style.display = "block";
+          tip.style.left = e.clientX + "px"; tip.style.top = e.clientY + "px";
+          tip.textContent = (a.serial || (rec ? rec.id : "")) + (a.photo ? " 📷" : "");
+          return;
+        }
+      }
+      // Hover the module cells (the clickable overlay).
+      if (moduleMesh && moduleMesh.visible) {
+        const mhits = raycaster.intersectObject(moduleMesh);
+        if (mhits.length && mhits[0].faceIndex != null) {
+          const idx = Math.floor(mhits[0].faceIndex / 2);
+          renderer.domElement.style.cursor = "pointer";
+          if (idx !== hoverIndex) {
+            hoverIndex = idx;
+            hoverHighlightModule(idx);
+          }
+          const m = moduleRecords[idx];
+          const a = (m && assignments[m.id]) || {};
+          tip.style.display = "block";
+          tip.style.left = e.clientX + "px";
+          tip.style.top = e.clientY + "px";
+          tip.textContent = (a.serial || (m ? m.id : "")) + (a.photo ? " 📷" : "");
+          return;
+        }
+      }
+      if (hoverIndex !== -1) {
+        hoverIndex = -1;
+        clearHoverHighlight();
+        renderer.domElement.style.cursor = "";
+        tip.style.display = "none";
+      }
+    }
+    // Lightweight hover highlight (separate from the click selection highlight).
+    let hoverHiIdx = -1, hoverHiOrig = null;
+    function clearHoverHighlight() {
+      if (hoverHiIdx < 0 || !moduleMesh) return;
+      if (hoverHiIdx !== moduleHighlightIdx) {  // don't clobber the selected cell
+        const col = moduleMesh.geometry.attributes.color.array;
+        const o = hoverHiIdx * 4 * 3;
+        for (let k = 0; k < 12; k++) col[o + k] = hoverHiOrig[k];
+        moduleMesh.geometry.attributes.color.needsUpdate = true;
+        requestRender();
+      }
+      hoverHiIdx = -1; hoverHiOrig = null;
+    }
+    function hoverHighlightModule(idx) {
+      if (!moduleMesh) return;
+      clearHoverHighlight();
+      if (idx === moduleHighlightIdx) return;  // already the selected (white) cell
+      const col = moduleMesh.geometry.attributes.color.array;
+      const o = idx * 4 * 3;
+      hoverHiOrig = col.slice(o, o + 12);
+      for (let k = 0; k < 4; k++) { col[o+k*3]=0.99; col[o+k*3+1]=0.62; col[o+k*3+2]=0.04; } // orange hover
+      moduleMesh.geometry.attributes.color.needsUpdate = true;
+      hoverHiIdx = idx;
+      requestRender();
+    }
+    renderer.domElement.addEventListener("pointermove", onPointerMove);
+
+    // Generic current selection: { id, defaultSerial }. Set by selectPile or
+    // selectModule; the admin/info handlers act on currentSel.id.
+    let currentSel = null;
+    function populateInfoPanel() {
+      if (!currentSel) return;
+      const { id, defaultSerial } = currentSel;
+      const a = assignments[id] || {};
+      $("info-serial").textContent = a.serial || defaultSerial;
+      $("info-pid").textContent = id;
+      const photoWrap = $("info-photo-wrap");
+      photoWrap.innerHTML = "";
+      if (a.photo) {
+        const img = document.createElement("img");
+        img.src = a.photo; img.alt = id;
+        photoWrap.appendChild(img);
+        $("info-photo-tag").style.display = "";
+      } else {
+        const ph = document.createElement("div");
+        ph.className = "placeholder";
+        ph.textContent = READONLY ? "No photo" : "No photo — click Upload";
+        photoWrap.appendChild(ph);
+        $("info-photo-tag").style.display = "none";
+      }
+      $("serial-input").value = a.serial || "";
+      $("serial-input").placeholder = defaultSerial;
+      $("info-delete-row").style.display = (currentSel.placed && !READONLY) ? "" : "none";
+      $("info").classList.add("shown");
+      if (window.matchMedia("(max-width: 820px), (pointer: coarse)").matches) {
+        const bd = $("sheet-backdrop");
+        if (bd) bd.classList.add("shown");
+      }
+    }
+
+    function selectPile(index) {
+      selectedIndex = index;
+      const p = pileData[index];
+      currentSel = { id: p.pileId, defaultSerial: p.serial };
+      populateInfoPanel();
+      const ring = pileMesh.userData.ring;
+      if (ring) {
+        ring.position.set(p.position.x, p.position.y + 0.002, p.position.z);
+        ring.visible = true;
+        requestRender();
+      }
+    }
+
+    function refreshSelected() {
+      if (currentSel && currentSel.moduleIdx != null) {
+        moduleHighlightIdx = -1; moduleHighlightOrig = null;  // discard stale
+        applyModuleTints();
+        highlightModule(currentSel.moduleIdx);
+      }
+      if (currentSel && currentSel.placed) refreshPlacedColors();
+      if (currentSel && currentSel.autoIdx != null) {
+        const keepIdx = currentSel.autoIdx;
+        autoHiIdx = -1; autoHiOrig = null;  // discard stale before retint
+        applyAutoCellTints();
+        selectAutoCell(keepIdx);            // re-highlights + re-populates panel
+        updateAssignedCount();
+        return;
+      }
+      if (currentSel) populateInfoPanel();
+      updateAssignedCount();
+    }
+
+    renderer.domElement.addEventListener("click", (e) => {
+      if (performance.now() < suppressClickUntil) return;
+      // Anchor mode consumes clicks first.
+      if (anchor.active && handleAnchorClick(e)) return;
+      const r = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+
+      // Trace mode: drop a new cell where the click hits the terrain.
+      if (traceMode) {
+        const hits = raycaster.intersectObjects(layoutCtx.rayTargets, false);
+        if (hits.length) {
+          const rec = addPlacedCell(hits[0].point.x, hits[0].point.z);
+          selectPlacedCell(rec.id);
+        }
+        return;
+      }
+
+      // Existing traced cells take priority (they're the populatable markers).
+      if (placedGroup && placedGroup.children.length) {
+        const phits = raycaster.intersectObjects(placedGroup.children, false);
+        if (phits.length) {
+          const id = phits[0].object.userData.cellId;
+          if (id) { selectPlacedCell(id); return; }
+        }
+      }
+      // Auto-traced CAD cells (when the CAD overlay is shown).
+      if (autoCellMesh && cadOverlayGroup && cadOverlayGroup.visible) {
+        const ahits = raycaster.intersectObject(autoCellMesh);
+        if (ahits.length && ahits[0].faceIndex != null) {
+          selectAutoCell(Math.floor(ahits[0].faceIndex / 2)); return;
+        }
+      }
+      // Then module cells (the visible overlay) when shown.
+      if (moduleMesh && moduleMesh.visible) {
+        const mhits = raycaster.intersectObject(moduleMesh);
+        if (mhits.length) {
+          const faceIndex = mhits[0].faceIndex;
+          if (faceIndex != null) { $("info-delete-row").style.display = "none"; selectModule(Math.floor(faceIndex / 2)); return; }
+        }
+      }
+      if (pileMesh && pileMesh.visible) {
+        const hits = raycaster.intersectObject(pileMesh);
+        const hit = hits.find(h => visibleMask[h.index]);
+        if (hit) { $("info-delete-row").style.display = "none"; selectPile(hit.index); }
+      }
+    });
+
+    // Escape exits anchor mode + drag mode.
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        if (anchor.active) exitAnchorMode("Anchor mode cancelled.");
+        if (editMode) setEditMode(null);
+      }
+    });
+
+    // ---- Direct mouse drag on canvas for translate/rotate/scale ------------
+    // Active when layoutLocked=false AND editMode is set. Disables OrbitControls
+    // for the duration of the drag and applies the change to the active target's
+    // transform (global or per-group).
+    const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const _ray = new THREE.Raycaster();
+    let dragState = null;
+    function pointerToGroundXZ(e, planeY) {
+      const r = renderer.domElement.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((e.clientX - r.left) / r.width) * 2 - 1,
+        -((e.clientY - r.top) / r.height) * 2 + 1,
+      );
+      _ray.setFromCamera(ndc, camera);
+      _groundPlane.constant = -planeY;
+      const out = new THREE.Vector3();
+      const hit = _ray.ray.intersectPlane(_groundPlane, out);
+      return hit ? { x: out.x, z: out.z } : null;
+    }
+
+    renderer.domElement.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      if (layoutLocked || !editMode || anchor.active) return;
+      // Use the layout's mean Y as the ground plane for translate math.
+      const planeY = (layoutCtx.bbox.min.y + layoutCtx.bbox.max.y) / 2;
+      const startW = pointerToGroundXZ(e, planeY);
+      if (!startW) return;
+      const t = activeTransform();
+      dragState = {
+        mode: editMode,
+        target: editTarget,
+        mode2: overlayMode,
+        startX: e.clientX, startY: e.clientY,
+        startWorld: startW,
+        planeY,
+        initial: { tx: t.tx || 0, tz: t.tz || 0, rotDeg: t.rotDeg || 0, scale: t.scale || 1 },
+      };
+      controls.enabled = false;
+      try { renderer.domElement.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    renderer.domElement.addEventListener("pointermove", (e) => {
+      if (!dragState) return;
+      const t = dragState.target === "CAD"
+        ? ensureCadT()
+        : (dragState.mode2 === "modules"
+            ? ensureSheetT(dragState.target)
+            : (dragState.target === "ALL" ? transform : ensureGT(dragState.target)));
+      if (dragState.mode === "translate") {
+        const w = pointerToGroundXZ(e, dragState.planeY);
+        if (!w) return;
+        t.tx = dragState.initial.tx + (w.x - dragState.startWorld.x);
+        t.tz = dragState.initial.tz + (w.z - dragState.startWorld.z);
+      } else if (dragState.mode === "rotate") {
+        // Horizontal pixels -> degrees. Right = clockwise.
+        const dx = e.clientX - dragState.startX;
+        t.rotDeg = dragState.initial.rotDeg + dx * 0.4;
+      } else if (dragState.mode === "scale") {
+        // Vertical pixels (up = bigger). Exponential so feel is symmetric.
+        const dy = dragState.startY - e.clientY;
+        const factor = Math.pow(1.01, dy);
+        t.scale = Math.max(0.02, dragState.initial.scale * factor);
+      }
+      scheduleApplyTransformInteractive();
+    });
+    let suppressClickUntil = 0;
+    function endDrag(e) {
+      if (!dragState) return;
+      try { renderer.domElement.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (dragState.target === "CAD") saveCadTransform();
+      else if (dragState.mode2 === "modules") saveSheetTransforms();
+      else if (dragState.target === "ALL") saveTransform();
+      else saveGroupTransforms();
+      // Block the click that fires immediately after a drag-up.
+      const moved = Math.hypot(e.clientX - dragState.startX, e.clientY - dragState.startY) > 3;
+      if (moved) suppressClickUntil = performance.now() + 300;
+      dragState = null;
+      controls.enabled = true;
+      syncAlignUIFromTransform();
+    }
+    renderer.domElement.addEventListener("pointerup", endDrag);
+    renderer.domElement.addEventListener("pointercancel", endDrag);
+
+    $("info-close").addEventListener("click", () => {
+      $("info").classList.remove("shown");
+      if (pileMesh && pileMesh.userData.ring) { pileMesh.userData.ring.visible = false; requestRender(); }
+      clearModuleHighlight();
+      selectedIndex = -1;
+      currentSel = null;
+    });
+
+    // ---- Admin edit handlers -----------------------------------------------
+    $("photo-upload-btn").addEventListener("click", () => $("photo-input").click());
+
+    $("photo-input").addEventListener("change", async (e) => {
+      if (READONLY) return;
+      const file = e.target.files && e.target.files[0];
+      if (!file || !currentSel) return;
+      try {
+        const dataURL = await fileToResizedDataURL(file, 800, 0.78);
+        const id = currentSel.id;
+        const a = assignments[id] || {};
+        a.photo = dataURL;
+        a.updatedAt = Date.now();
+        assignments[id] = a;
+        saveAssignments();
+        refreshSelected();
+        toast("Photo saved");
+      } catch (err) {
+        console.error(err);
+        toast("Could not load image", 3000);
+      }
+      e.target.value = "";
+    });
+
+    $("photo-clear-btn").addEventListener("click", () => {
+      if (READONLY || !currentSel) return;
+      const id = currentSel.id;
+      const a = assignments[id];
+      if (a && a.photo) {
+        delete a.photo;
+        if (!a.serial) delete assignments[id];
+        else a.updatedAt = Date.now();
+        saveAssignments();
+        refreshSelected();
+        toast("Photo removed");
+      }
+    });
+
+    $("info-save").addEventListener("click", () => {
+      if (READONLY || !currentSel) return;
+      const id = currentSel.id, def = currentSel.defaultSerial;
+      const sv = $("serial-input").value.trim();
+      const a = assignments[id] || {};
+      if (sv && sv !== def) a.serial = sv; else delete a.serial;
+      a.updatedAt = Date.now();
+      if (!a.serial && !a.photo) delete assignments[id];
+      else assignments[id] = a;
+      saveAssignments();
+      refreshSelected();
+      toast("Saved");
+    });
+
+    $("info-reset").addEventListener("click", () => {
+      if (READONLY || !currentSel) return;
+      const id = currentSel.id;
+      if (assignments[id]) {
+        delete assignments[id];
+        saveAssignments();
+        refreshSelected();
+        toast("Reset to defaults");
+      }
+    });
+
+    // ---- Share / export / import -------------------------------------------
+    $("btn-copy-link").addEventListener("click", async () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", "readonly");
+      const link = url.toString();
+      try {
+        await navigator.clipboard.writeText(link);
+        toast("Read-only link copied to clipboard");
+      } catch (_) {
+        // Fallback: prompt
+        window.prompt("Read-only link:", link);
+      }
+    });
+
+    $("btn-export").addEventListener("click", () => {
+      const out = {
+        project: "Midway",
+        exportedAt: new Date().toISOString(),
+        assignments,
+      };
+      const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "pile_assignments.json";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      toast("Downloaded pile_assignments.json");
+    });
+
+    $("btn-import").addEventListener("click", () => $("import-input").click());
+
+    $("import-input").addEventListener("change", async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try {
+        const txt = await file.text();
+        const parsed = JSON.parse(txt);
+        const incoming = parsed.assignments || parsed;
+        if (typeof incoming !== "object" || !incoming) throw new Error("bad shape");
+        let merged = 0;
+        for (const [k, v] of Object.entries(incoming)) {
+          if (!v) continue;
+          assignments[k] = { ...(assignments[k] || {}), ...v };
+          merged++;
+        }
+        saveAssignments();
+        refreshSelected();
+        toast(`Imported ${merged} assignments`);
+      } catch (err) {
+        console.error(err);
+        toast("Import failed: " + (err.message || err), 4000);
+      }
+      e.target.value = "";
+    });
+
+    // ---- Alignment UI ------------------------------------------------------
+    function syncAlignUIFromTransform() {
+      const t = activeTransform();
+      $("align-tx").value = t.tx;
+      $("align-tx-num").value = (t.tx || 0).toFixed(3);
+      $("align-tz").value = t.tz;
+      $("align-tz-num").value = (t.tz || 0).toFixed(3);
+      $("align-rot").value = t.rotDeg;
+      $("align-rot-num").value = (t.rotDeg || 0).toFixed(2);
+      $("align-scale").value = t.scale;
+      $("align-scale-num").value = (t.scale || 1).toFixed(3);
+      $("align-stretchx").value = (t.stretchX === undefined ? 1 : t.stretchX);
+      $("align-stretchx-num").value = (t.stretchX === undefined ? 1 : t.stretchX).toFixed(3);
+      $("align-stretchz").value = (t.stretchZ === undefined ? 1 : t.stretchZ);
+      $("align-stretchz-num").value = (t.stretchZ === undefined ? 1 : t.stretchZ).toFixed(3);
+    }
+    function updateAlignSliderLabels() {
+      const t = activeTransform();
+      $("align-tx-num").value = (t.tx || 0).toFixed(3);
+      $("align-tz-num").value = (t.tz || 0).toFixed(3);
+      $("align-rot-num").value = (t.rotDeg || 0).toFixed(2);
+      $("align-scale-num").value = (t.scale || 1).toFixed(3);
+      $("align-stretchx-num").value = (t.stretchX === undefined ? 1 : t.stretchX).toFixed(3);
+      $("align-stretchz-num").value = (t.stretchZ === undefined ? 1 : t.stretchZ).toFixed(3);
+    }
+    // Returns the active transform object (CAD / sheet / global / per-group).
+    function activeTransform() {
+      if (editTarget === "CAD") return ensureCadT();
+      if (overlayMode === "modules") return ensureSheetT(editTarget);
+      return editTarget === "ALL" ? transform : ensureGT(editTarget);
+    }
+    function persistActive() {
+      if (editTarget === "CAD") saveCadTransform();
+      else if (overlayMode === "modules") saveSheetTransforms();
+      else if (editTarget === "ALL") saveTransform();
+      else saveGroupTransforms();
+    }
+    function bindAlign(rangeId, numId, key) {
+      const r = $(rangeId), n = $(numId);
+      r.addEventListener("input", () => {
+        activeTransform()[key] = parseFloat(r.value) || 0;
+        scheduleApplyTransformInteractive();
+      });
+      r.addEventListener("change", () => { applyTransform({ persist: false }); persistActive(); });
+      n.addEventListener("change", () => {
+        const v = parseFloat(n.value);
+        if (!Number.isFinite(v)) return;
+        activeTransform()[key] = v;
+        r.value = v;
+        applyTransform({ persist: false });
+        persistActive();
+      });
+    }
+    bindAlign("align-tx", "align-tx-num", "tx");
+    bindAlign("align-tz", "align-tz-num", "tz");
+    bindAlign("align-rot", "align-rot-num", "rotDeg");
+    bindAlign("align-scale", "align-scale-num", "scale");
+    bindAlign("align-stretchx", "align-stretchx-num", "stretchX");
+    bindAlign("align-stretchz", "align-stretchz-num", "stretchZ");
+    $("btn-align-reset").addEventListener("click", () => {
+      if (layoutLocked) return;
+      resetTransform();
+      toast("Alignment reset");
+    });
+
+    $("btn-lock").addEventListener("click", () => {
+      layoutLocked = !layoutLocked;
+      if (layoutLocked) setEditMode(null);
+      applyLockState();
+      toast(layoutLocked ? "Layout locked" : "Layout unlocked — alignment editable");
+    });
+
+    $("btn-flip-x").addEventListener("click", () => {
+      if (layoutLocked) return;
+      const t = activeTransform();
+      if (editTarget === "CAD" || overlayMode === "modules") {
+        t.flipX = (t.flipX || 1) * -1;
+      } else if (editTarget === "ALL") {
+        t.geoStretchX = (t.geoStretchX || 1) * -1;
+      } else {
+        t.scale = -(t.scale || 1);  // per-group flip via negative scale
+      }
+      applyTransform();
+      persistActive();
+      toast("Flipped horizontally");
+    });
+    $("btn-flip-z").addEventListener("click", () => {
+      if (layoutLocked) return;
+      const t = activeTransform();
+      if (editTarget === "CAD" || overlayMode === "modules") {
+        t.flipZ = (t.flipZ || 1) * -1;
+      } else if (editTarget === "ALL") {
+        t.geoStretchZ = (t.geoStretchZ || 1) * -1;
+      } else {
+        // For per-group, "Flip Z" rotates 180° (simpler than a Z stretch).
+        t.rotDeg = (t.rotDeg || 0) + 180;
+        t.scale = -(t.scale || 1);
+      }
+      applyTransform();
+      persistActive();
+      toast("Flipped vertically");
+    });
+
+    // Color-mode picker
+    function setColorMode(mode) {
+      colorMode = mode;
+      try { localStorage.setItem(COLOR_MODE_KEY, mode); } catch (_) {}
+      document.querySelectorAll(".color-mode-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.mode === mode);
+      });
+      recolorPiles();
+    }
+    document.querySelectorAll(".color-mode-btn").forEach(b => {
+      b.addEventListener("click", () => setColorMode(b.dataset.mode));
+    });
+
+    // Overlay mode toggle (Modules vs Dots)
+    function setOverlayMode(mode) {
+      overlayMode = mode;
+      applyOverlayMode();
+      buildEditTargetUI();          // targets differ per mode (sheets vs groups)
+      refreshOverlayModeButtons();
+      syncAlignUIFromTransform();
+    }
+    function refreshOverlayModeButtons() {
+      document.querySelectorAll(".overlay-mode-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.overlay === overlayMode);
+      });
+    }
+    document.querySelectorAll(".overlay-mode-btn").forEach(b => {
+      b.addEventListener("click", () => setOverlayMode(b.dataset.overlay));
+    });
+    refreshOverlayModeButtons();
+
+    // ---- KMZ georeference --------------------------------------------------
+    // Mapping uses the combined CAD-overlay lat/lon bbox as the geographic
+    // frame, and assumes the model's XZ bbox covers that same frame. The
+    // result is far better than naive PDF→bbox fit because we use real
+    // meter-scale aspect (longitude scaled by cos(lat)).
+    function kmzAlign() {
+      const kmz = window.__kmz;
+      if (!kmz || !kmz.combinedOverlayBbox || !layoutCtx) {
+        toast("KMZ reference not loaded");
+        return;
+      }
+      const bb = kmz.combinedOverlayBbox;
+      const pdf = layoutCtx;  // has pdfCenterX, pdfCenterY, baseScale (unused here)
+      // PDF pile bbox from the original data.
+      const pBounds = window.__pdfBounds;
+      if (!pBounds) { toast("Missing PDF bounds"); return; }
+
+      const lonC = (bb.east + bb.west) / 2;
+      const latC = (bb.north + bb.south) / 2;
+      const cosLat = Math.cos(latC * Math.PI / 180);
+      // Geographic span in meters.
+      const lonSpanM = (bb.east - bb.west) * 111320 * cosLat;
+      const latSpanM = (bb.north - bb.south) * 110540;
+
+      // PDF pile bbox dimensions (in PDF points).
+      const pdfW = pBounds.maxX - pBounds.minX;
+      const pdfH = pBounds.maxY - pBounds.minY;
+
+      // Model XZ bbox dimensions.
+      const modelW = layoutCtx.bbox.max.x - layoutCtx.bbox.min.x;
+      const modelD = layoutCtx.bbox.max.z - layoutCtx.bbox.min.z;
+
+      // We need pdfPointToModelUnit. The chain is:
+      //   PDF point -> meters (using overlay frame)
+      //   meters -> model units (using model-frame-assumed-=-overlay-frame)
+      // For a single uniform scale (sliders use uniform scale), fit
+      // longitudinally so the field's width matches.
+      // 1 PDF point ≈ lonSpanM / pdfW meters
+      // 1 meter ≈ modelW / lonSpanM model units (lon direction)
+      // so 1 PDF point ≈ modelW / pdfW model units
+      // That's literally the existing baseScale (PDF→model X), so adjust
+      // to the correct meter aspect by using the geographic mid-axis scale.
+      // We want a SINGLE scale multiplier on top of baseScale that makes
+      // the layout's longitudinal extent equal to the model's longitudinal
+      // span weighted by the geo aspect. In practice the cleanest path is:
+      //   targetMeterPerModelUnit = sqrt(lonSpanM*latSpanM / (modelW*modelD))
+      //   targetMeterPerPdfPt   = sqrt(lonSpanM*latSpanM / (pdfW*pdfH))
+      //   so PDF→model = targetMeterPerPdfPt / targetMeterPerModelUnit
+      //                = sqrt((modelW*modelD)/(pdfW*pdfH))
+      // That's the baseScale already used. KMZ refinement: rotate to align
+      // PDF "up" (north) with the model's north axis. For an unknown
+      // orientation we leave rotation at 0 and let user adjust.
+      // The real value of KMZ here is making sure the layout's *meter
+      // aspect ratio* gets respected: if PDF is taller than geo, we should
+      // squish vertically.
+      const pdfAspect = pdfW / pdfH;
+      const geoAspect = lonSpanM / latSpanM;
+      // Apply an x/z stretch ratio. Since our transform exposes only a
+      // single uniform scale, we instead pre-distort the PDF coordinates
+      // when computing world XZ. We do this via two scale factors stored
+      // on the transform.
+      transform.scale = 1;
+      transform.tx = 0;
+      transform.tz = 0;
+      transform.rotDeg = 0;
+      transform.geoStretchX = 1;
+      transform.geoStretchZ = pdfAspect / geoAspect; // squish Z if PDF taller than geo
+      applyTransform();
+      syncAlignUIFromTransform();
+      toast(`KMZ georef applied (Z stretch ${transform.geoStretchZ.toFixed(3)})`);
+    }
+    $("btn-kmz-align").addEventListener("click", kmzAlign);
+
+    // -- CAD overlay drape --
+    // Drop the KMZ overlay JPEGs onto the terrain at their georeferenced
+    // positions. The model's XZ bbox is treated as the combined overlay
+    // bbox, so each overlay gets a sub-rectangle inside the model's
+    // footprint based on its own lat/lon corners.
+    // CAD overlay transform — lets the user resize/fit the draped KMZ image
+    // to the model. Applied to the whole overlay group (scale around center).
+    const CAD_TRANSFORM_KEY = "midway_cad_transform_v1";
+    let cadTransform = { tx: 0, tz: 0, rotDeg: 0, scale: 1, stretchX: 1, stretchZ: 1, flipX: 1, flipZ: 1 };
+    try {
+      const raw = localStorage.getItem(CAD_TRANSFORM_KEY);
+      if (raw) cadTransform = { ...cadTransform, ...(JSON.parse(raw) || {}) };
+    } catch (_) {}
+    function ensureCadT() { return cadTransform; }
+    function saveCadTransform() { try { localStorage.setItem(CAD_TRANSFORM_KEY, JSON.stringify(cadTransform)); } catch (_) {} }
+    let cadCenter = { x: 0, z: 0, y: 0 };
+    function applyCadTransform() {
+      if (!cadOverlayGroup) return;
+      const t = cadTransform;
+      cadOverlayGroup.position.set(cadCenter.x + (t.tx || 0), cadCenter.y, cadCenter.z + (t.tz || 0));
+      cadOverlayGroup.scale.set(
+        (t.scale || 1) * (t.stretchX || 1) * (t.flipX || 1),
+        1,
+        (t.scale || 1) * (t.stretchZ || 1) * (t.flipZ || 1),
+      );
+      cadOverlayGroup.rotation.y = -(t.rotDeg || 0) * Math.PI / 180;
+      requestRender();
+    }
+
+    let cadOverlayGroup = null;
+    function toggleCadOverlay() {
+      const kmz = window.__kmz;
+      if (!kmz || !kmz.overlays || !kmz.combinedOverlayBbox || !layoutCtx) {
+        toast("KMZ reference not loaded");
+        return;
+      }
+      if (cadOverlayGroup) {
+        cadOverlayGroup.visible = !cadOverlayGroup.visible;
+        $("btn-toggle-overlay").textContent = cadOverlayGroup.visible ? "Hide CAD overlay" : "Show CAD overlay";
+        toast(cadOverlayGroup.visible ? "CAD overlay shown — select 'CAD' to resize it" : "CAD overlay hidden");
+        if (!cadOverlayGroup.visible && editTarget === "CAD") {
+          editTarget = moduleSheets.length ? moduleSheets[0].id : "ALL";
+        }
+        rebuildEditTargetsForCad();
+        if (cadOverlayGroup.visible) setEditTarget("CAD");
+        else { refreshEditTargetActive(); syncAlignUIFromTransform(); }
+        requestRender();
+        return;
+      }
+      cadOverlayGroup = new THREE.Group();
+      cadOverlayGroup.name = "CAD overlays";
+      const cb = kmz.combinedOverlayBbox;
+      const bbox = layoutCtx.bbox;
+      const modelMinX = bbox.min.x, modelMaxX = bbox.max.x;
+      const modelMinZ = bbox.min.z, modelMaxZ = bbox.max.z;
+      cadCenter = { x: (modelMinX + modelMaxX) / 2, z: (modelMinZ + modelMaxZ) / 2, y: bbox.max.y + 0.001 };
+      const ovRects = {};   // icon -> {x0,x1,z0,z1}
+      kmz.overlays.forEach((ov) => {
+        const px = (lon) => modelMinX + (lon - cb.west) / (cb.east - cb.west) * (modelMaxX - modelMinX);
+        const pz = (lat) => modelMinZ + (cb.north - lat) / (cb.north - cb.south) * (modelMaxZ - modelMinZ);
+        const x0 = px(ov.west),  x1 = px(ov.east);
+        const z0 = pz(ov.north), z1 = pz(ov.south);
+        const w = x1 - x0, d = z1 - z0;
+        if (!isFinite(w) || !isFinite(d) || w <= 0 || d <= 0) return;
+        ovRects[ov.icon] = { x0, x1, z0, z1 };
+        const url = "data/kmz/" + ov.icon;
+        new THREE.TextureLoader().load(url, (tex) => {
+          tex.encoding = THREE.sRGBEncoding;
+          const geo = new THREE.PlaneGeometry(w, d);
+          geo.rotateX(-Math.PI / 2);
+          const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.6, depthWrite: false });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set((x0 + w/2) - cadCenter.x, 0, (z0 + d/2) - cadCenter.z);
+          mesh.renderOrder = 0;
+          cadOverlayGroup.add(mesh);
+          requestRender();
+        });
+      });
+      // Build the auto-traced cells (parented to the CAD group so they track it).
+      buildAutoCells(ovRects);
+      scene.add(cadOverlayGroup);
+      applyCadTransform();
+      $("btn-toggle-overlay").textContent = "Hide CAD overlay";
+      toast("CAD overlay + auto-traced cells shown");
+      rebuildEditTargetsForCad();
+      setEditTarget("CAD");
+    }
+    $("btn-toggle-overlay").addEventListener("click", toggleCadOverlay);
+
+    // ---- Auto-traced CAD cells --------------------------------------------
+    // One flat quad per detected array cell, in the CAD overlay's local frame
+    // (so the CAD transform moves/scales them with the image). Clickable +
+    // populatable like piles/modules; ids are A-0001..., assignments shared.
+    let autoCellMesh = null;
+    let autoCellRecords = [];     // [{id}]
+    function buildAutoCells(ovRects) {
+      const cc = window.__cadCells;
+      if (!cc || !cc.overlays) return;
+      // Gather quads.
+      const quads = [];  // {cx,cz,hw,hh,id}
+      let seq = 0;
+      cc.overlays.forEach(o => {
+        const rect = ovRects[o.icon];
+        if (!rect) return;
+        const rw = rect.x1 - rect.x0, rd = rect.z1 - rect.z0;
+        const hw = (o.cellU * rw) * 0.5, hh = (o.cellV * rd) * 0.5;
+        o.cells.forEach(([u, v]) => {
+          seq++;
+          quads.push({
+            cx: (rect.x0 + u * rw) - cadCenter.x,
+            cz: (rect.z0 + v * rd) - cadCenter.z,
+            hw, hh, id: `A-${String(seq).padStart(4, "0")}`,
+          });
+        });
+      });
+      if (!quads.length) return;
+      autoCellRecords = quads.map(q => ({ id: q.id }));
+      const N = quads.length;
+      const pos = new Float32Array(N * 4 * 3);
+      const col = new Float32Array(N * 4 * 3);
+      const idx = new Uint32Array(N * 6);
+      const lift = 0.004;
+      for (let i = 0; i < N; i++) {
+        const q = quads[i];
+        const corners = [[-q.hw,-q.hh],[q.hw,-q.hh],[q.hw,q.hh],[-q.hw,q.hh]];
+        for (let k = 0; k < 4; k++) {
+          const b = (i*4+k)*3;
+          pos[b] = q.cx + corners[k][0]; pos[b+1] = lift; pos[b+2] = q.cz + corners[k][1];
+        }
+        const o = i*4;
+        idx[i*6+0]=o; idx[i*6+1]=o+1; idx[i*6+2]=o+2; idx[i*6+3]=o; idx[i*6+4]=o+2; idx[i*6+5]=o+3;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      geo.setIndex(new THREE.BufferAttribute(idx, 1));
+      const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide });
+      autoCellMesh = new THREE.Mesh(geo, mat);
+      autoCellMesh.frustumCulled = false;
+      autoCellMesh.renderOrder = 4;
+      cadOverlayGroup.add(autoCellMesh);
+      applyAutoCellTints();
+    }
+    const _autoMark = new THREE.Color("#fde047");
+    const _autoBase = new THREE.Color("#22d3ee");
+    function applyAutoCellTints() {
+      if (!autoCellMesh) return;
+      const col = autoCellMesh.geometry.attributes.color.array;
+      for (let i = 0; i < autoCellRecords.length; i++) {
+        const has = !!assignments[autoCellRecords[i].id];
+        const c = has ? _autoMark : _autoBase;
+        const o = i*4*3;
+        for (let k = 0; k < 4; k++) { col[o+k*3]=c.r; col[o+k*3+1]=c.g; col[o+k*3+2]=c.b; }
+      }
+      autoCellMesh.geometry.attributes.color.needsUpdate = true;
+      requestRender();
+    }
+    let autoHiIdx = -1, autoHiOrig = null;
+    function clearAutoHighlight() {
+      if (autoHiIdx < 0 || !autoCellMesh) return;
+      const col = autoCellMesh.geometry.attributes.color.array;
+      const o = autoHiIdx*4*3;
+      for (let k = 0; k < 12; k++) col[o+k] = autoHiOrig[k];
+      autoCellMesh.geometry.attributes.color.needsUpdate = true;
+      autoHiIdx = -1; autoHiOrig = null; requestRender();
+    }
+    function selectAutoCell(i) {
+      const rec = autoCellRecords[i];
+      if (!rec) return;
+      clearAutoHighlight();
+      const col = autoCellMesh.geometry.attributes.color.array;
+      const o = i*4*3;
+      autoHiOrig = col.slice(o, o+12);
+      for (let k = 0; k < 4; k++) { col[o+k*3]=1; col[o+k*3+1]=1; col[o+k*3+2]=1; }
+      autoCellMesh.geometry.attributes.color.needsUpdate = true;
+      autoHiIdx = i; requestRender();
+      currentSel = { id: rec.id, defaultSerial: rec.id, autoIdx: i };
+      selectedIndex = -1;
+      clearModuleHighlight();
+      if (pileMesh && pileMesh.userData.ring) pileMesh.userData.ring.visible = false;
+      $("info-delete-row").style.display = "none";
+      populateInfoPanel();
+    }
+
+    // Toggle the module (drawing) overlay, mirroring the CAD toggle.
+    let modulesHidden = false;
+    $("btn-toggle-modules").addEventListener("click", () => {
+      modulesHidden = !modulesHidden;
+      if (moduleMesh) moduleMesh.visible = !modulesHidden;
+      $("btn-toggle-modules").textContent = modulesHidden ? "Show modules" : "Hide modules";
+      toast(modulesHidden ? "Module overlay hidden" : "Module overlay shown");
+      requestRender();
+    });
+
+    // Add/remove a "CAD" chip in the edit-target row when the overlay is shown.
+    function rebuildEditTargetsForCad() {
+      buildEditTargetUI();
+    }
+
+    // -- Preset camera views --
+    function tweenCamera(toPos, toTarget, ms = 600) {
+      const startPos = camera.position.clone();
+      const startTgt = controls.target.clone();
+      const endPos = toPos.clone();
+      const endTgt = toTarget.clone();
+      const t0 = performance.now();
+      function step() {
+        const k = Math.min(1, (performance.now() - t0) / ms);
+        const e = 1 - Math.pow(1 - k, 3);
+        camera.position.lerpVectors(startPos, endPos, e);
+        controls.target.lerpVectors(startTgt, endTgt, e);
+        controls.update();
+        if (k < 1) requestAnimationFrame(step);
+      }
+      step();
+    }
+    $("btn-view-top").addEventListener("click", () => {
+      if (!layoutCtx) return;
+      const bb = layoutCtx.bbox;
+      const size = bb.getSize(new THREE.Vector3());
+      const center = bb.getCenter(new THREE.Vector3());
+      const d = Math.max(size.x, size.z) * 1.4;
+      tweenCamera(new THREE.Vector3(center.x, bb.max.y + d, center.z + 0.001), new THREE.Vector3(center.x, bb.min.y, center.z));
+    });
+    $("btn-view-iso").addEventListener("click", () => {
+      if (!layoutCtx) return;
+      const bb = layoutCtx.bbox;
+      const size = bb.getSize(new THREE.Vector3());
+      const center = bb.getCenter(new THREE.Vector3());
+      const r = Math.max(size.x, size.z) * 1.0;
+      tweenCamera(new THREE.Vector3(center.x + r*0.9, center.y + size.y + r*0.8, center.z + r*0.9), new THREE.Vector3(center.x, center.y + size.y*0.3, center.z));
+    });
+
+    // -- Two-point anchor mode --
+    // Sequence: pick pile A -> pick target A -> pick pile B -> pick target B
+    // Then solve scale+rotation+translation so both pairs match.
+    const anchor = {
+      active: false,
+      step: 0,  // 0..4
+      A: null, // { pilePdfX, pilePdfY, targetX, targetZ }
+      B: null,
+    };
+    function setAnchorStatus(text, active = true) {
+      const el = $("anchor-status");
+      el.textContent = text;
+      el.classList.toggle("active", !!active);
+    }
+    function exitAnchorMode(msg) {
+      anchor.active = false;
+      anchor.step = 0;
+      anchor.A = null; anchor.B = null;
+      document.body.classList.remove("anchor-pick-pile", "anchor-pick-target");
+      if (msg) setAnchorStatus(msg, false);
+      else setAnchorStatus("Tip: drag sliders, or use 2-pt anchor to align by clicking two reference points.", false);
+    }
+    function advanceAnchorPrompt() {
+      if (anchor.step === 0) { setAnchorStatus("Step 1/4: Click the first reference pile (white dot)."); document.body.classList.add("anchor-pick-pile"); document.body.classList.remove("anchor-pick-target"); }
+      else if (anchor.step === 1) { setAnchorStatus("Step 2/4: Click on the model where that pile should sit."); document.body.classList.add("anchor-pick-target"); document.body.classList.remove("anchor-pick-pile"); }
+      else if (anchor.step === 2) { setAnchorStatus("Step 3/4: Click a second reference pile."); document.body.classList.add("anchor-pick-pile"); document.body.classList.remove("anchor-pick-target"); }
+      else if (anchor.step === 3) { setAnchorStatus("Step 4/4: Click the second target on the model."); document.body.classList.add("anchor-pick-target"); document.body.classList.remove("anchor-pick-pile"); }
+    }
+    $("btn-anchor").addEventListener("click", () => {
+      if (anchor.active) { exitAnchorMode("Anchor mode cancelled."); return; }
+      anchor.active = true;
+      anchor.step = 0;
+      anchor.A = null; anchor.B = null;
+      advanceAnchorPrompt();
+    });
+
+    function solveAnchorTransform() {
+      // Two pairs (a_pdf, A_world) and (b_pdf, B_world).
+      // Solve similarity transform such that PDF->world. Update `transform`.
+      const ctx = layoutCtx;
+      const ax = (anchor.A.pilePdfX - ctx.pdfCenterX);
+      const ay = -(anchor.A.pilePdfY - ctx.pdfCenterY); // flip Y once
+      const bx = (anchor.B.pilePdfX - ctx.pdfCenterX);
+      const by = -(anchor.B.pilePdfY - ctx.pdfCenterY);
+      const Ax = anchor.A.targetX - ctx.modelCenterX;
+      const Az = anchor.A.targetZ - ctx.modelCenterZ;
+      const Bx = anchor.B.targetX - ctx.modelCenterX;
+      const Bz = anchor.B.targetZ - ctx.modelCenterZ;
+      // Vector PDF: (vpx, vpy); vector world: (vwx, vwz).
+      const vpx = bx - ax, vpy = by - ay;
+      const vwx = Bx - Ax, vwz = Bz - Az;
+      const lp = Math.hypot(vpx, vpy);
+      const lw = Math.hypot(vwx, vwz);
+      if (lp < 1e-6 || lw < 1e-6) { exitAnchorMode("Anchors too close — try again."); return; }
+      // Scale relative to baseScale (so transform.scale stays a multiplier).
+      const totalScale = lw / lp;
+      transform.scale = totalScale / ctx.baseScale;
+      // Rotation: angle(vw) - angle(vp).
+      const angP = Math.atan2(vpy, vpx);
+      const angW = Math.atan2(vwz, vwx);
+      transform.rotDeg = ((angW - angP) * 180 / Math.PI);
+      // Translation: chosen so anchor A lands on its target.
+      // After scale + rotation, PDF point a -> rotated by transform.rotDeg
+      // and scaled by baseScale*transform.scale. Translation is what makes
+      // that equal to (Ax, Az).
+      const rad = transform.rotDeg * Math.PI / 180;
+      const c = Math.cos(rad), s = Math.sin(rad);
+      const sFac = ctx.baseScale * transform.scale;
+      const apx = ax * sFac * c - ay * sFac * s;
+      const apz = ax * sFac * s + ay * sFac * c;
+      transform.tx = Ax - apx;
+      transform.tz = Az - apz;
+      applyTransform();
+      syncAlignUIFromTransform();
+      exitAnchorMode(`Aligned · scale ${transform.scale.toFixed(3)} · rot ${transform.rotDeg.toFixed(1)}°`);
+      toast("Alignment applied");
+    }
+
+    function handleAnchorClick(e) {
+      if (!anchor.active || !pileMesh) return false;
+      const r = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      // Step 0 & 2: pick a pile
+      if (anchor.step === 0 || anchor.step === 2) {
+        const hits = raycaster.intersectObject(pileMesh);
+        const hit = hits.find(h => visibleMask[h.index]);
+        if (!hit) { toast("Click directly on a white pile dot"); return true; }
+        const p = pileData[hit.index];
+        if (anchor.step === 0) anchor.A = { pilePdfX: p.srcX, pilePdfY: p.srcY };
+        else anchor.B = { pilePdfX: p.srcX, pilePdfY: p.srcY };
+        anchor.step++;
+        advanceAnchorPrompt();
+        return true;
+      }
+      // Step 1 & 3: pick a target point on the terrain
+      if (anchor.step === 1 || anchor.step === 3) {
+        const hits = raycaster.intersectObjects(layoutCtx.rayTargets, false);
+        if (!hits.length) { toast("Click on the terrain"); return true; }
+        const h = hits[0].point;
+        if (anchor.step === 1) { anchor.A.targetX = h.x; anchor.A.targetZ = h.z; }
+        else { anchor.B.targetX = h.x; anchor.B.targetZ = h.z; }
+        anchor.step++;
+        if (anchor.step >= 4) solveAnchorTransform();
+        else advanceAnchorPrompt();
+        return true;
+      }
+      return false;
+    }
+
+    $("btn-export-align").addEventListener("click", () => {
+      const blob = new Blob([JSON.stringify(transform, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "pile_transform.json";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      toast("Downloaded pile_transform.json");
+    });
+
+    $("btn-clear-all").addEventListener("click", () => {
+      if (READONLY) return;
+      if (!Object.keys(assignments).length) { toast("Nothing to clear"); return; }
+      if (!confirm("Clear all local assignments? This cannot be undone.")) return;
+      assignments = {};
+      saveAssignments();
+      refreshSelected();
+      toast("Cleared local assignments");
+    });
+
+    $("search").addEventListener("input", (e) => {
+      const q = e.target.value.trim().toUpperCase();
+      if (!q || !pileData.length) return;
+      // Match by override serial first, then by auto-assigned serial / digits
+      let target = pileData.find(p => {
+        const a = assignments[p.pileId];
+        return (a && a.serial && a.serial.toUpperCase() === q) || p.serial === q;
+      });
+      if (!target) {
+        const digits = q.replace(/\D+/g, "");
+        if (digits) {
+          const padded = "P-" + digits.padStart(4, "0");
+          target = pileData.find(p => p.serial === padded);
+        }
+      }
+      if (target) {
+        const idx = pileData.indexOf(target);
+        selectPile(idx);
+        // Tween camera target to the pile
+        const t = controls.target;
+        const targetVec = new THREE.Vector3(target.position.x, target.position.y, target.position.z);
+        const start = t.clone();
+        const startCam = camera.position.clone();
+        const offset = camera.position.clone().sub(start);
+        const dist = offset.length();
+        const desired = 0.6;
+        const newOffset = offset.normalize().multiplyScalar(Math.min(dist, Math.max(desired, dist * 0.5)));
+        const endCam = targetVec.clone().add(newOffset);
+        const t0 = performance.now();
+        function step() {
+          const k = Math.min(1, (performance.now() - t0) / 700);
+          const e = 1 - Math.pow(1 - k, 3);
+          t.lerpVectors(start, targetVec, e);
+          camera.position.lerpVectors(startCam, endCam, e);
+          controls.update();
+          if (k < 1) requestAnimationFrame(step);
+        }
+        step();
+      }
+    });
+
+    // ---- Resize + animate --------------------------------------------------
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // OrbitControls fires 'change' on every camera update (including damping
+    // settling frames). That's our signal to schedule a render.
+    controls.addEventListener("change", requestRender);
+
+    // ---- Mobile bottom-sheet navigation ------------------------------------
+    const backdrop = $("sheet-backdrop");
+    const sheetIds = ["align-panel", "groups", "share-panel", "info"];
+    function openSheet(id) {
+      sheetIds.forEach(s => {
+        const el = $(s);
+        if (!el) return;
+        if (s === id) el.classList.add("sheet-open");
+        else el.classList.remove("sheet-open");
+      });
+      // Info uses its own .shown class for visibility; treat similarly.
+      if (id === "info") $("info").classList.add("shown");
+      backdrop.classList.add("shown");
+      syncMobileNavActive(id);
+    }
+    function closeSheets() {
+      sheetIds.forEach(s => { const el = $(s); if (el) el.classList.remove("sheet-open"); });
+      backdrop.classList.remove("shown");
+      syncMobileNavActive(null);
+    }
+    function syncMobileNavActive(id) {
+      document.querySelectorAll("#mobile-nav .mnav-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.sheet === id);
+      });
+    }
+    document.querySelectorAll("#mobile-nav .mnav-btn[data-sheet]").forEach(b => {
+      b.addEventListener("click", () => {
+        const id = b.dataset.sheet;
+        const el = $(id);
+        const isOpen = el && el.classList.contains("sheet-open");
+        if (isOpen) closeSheets();
+        else openSheet(id);
+      });
+    });
+    $("mnav-top").addEventListener("click", () => { closeSheets(); $("btn-view-top").click(); });
+    backdrop.addEventListener("click", closeSheets);
+    // Closing the info panel via its × should also clear the backdrop on mobile.
+    $("info-close").addEventListener("click", closeSheets);
+    window.addEventListener("resize", requestRender);
+
+    function animate() {
+      requestAnimationFrame(animate);
+      // Damping needs update() each frame WHILE settling so it can emit more
+      // change events. Cheap when idle.
+      controls.update();
+      // Pulse the highlight ring while it's visible — needs render each frame.
+      if (pileMesh && pileMesh.userData.ring && pileMesh.userData.ring.visible) {
+        const s = 1 + Math.sin(performance.now() * 0.006) * 0.12;
+        pileMesh.userData.ring.scale.set(s, 1, s);
+        requestRender();
+      }
+      if (renderRequested) {
+        renderRequested = false;
+        renderer.render(scene, camera);
+      }
+    }
+    animate();
+  </script>
+</body>
+</html>

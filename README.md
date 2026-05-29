@@ -1,7 +1,7 @@
-# Midway Pile Viewer — auto-deployed
+# Midway Field Tool — auto-deployed bundle
 
-This branch is rebuilt automatically from the source repo's
-`scripts/build_viewer_bundle.sh`. Don't edit files here directly — edit
-`pile_viewer.html` on the work branch and the deploy bot updates this branch.
+Rebuilt from scripts/build_viewer_bundle.sh on the work branch. Pages:
+/ = dashboard · /model.html = 3D model · /drawings.html = row data entry.
 
-`/` = admin mode · `/?view=readonly` = read-only
+Backend: Netlify Functions (netlify/functions) over Netlify Blobs, with
+Netlify Identity for login + invites. See SETUP in the work-branch docs.
