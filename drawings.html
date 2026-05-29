@@ -443,14 +443,19 @@
   $("invite-cancel").addEventListener("click",()=>{ $("invite-modal").style.display="none"; });
   $("invite-send").addEventListener("click",async()=>{
     const email=$("invite-email").value.trim(); if(!email)return;
-    try{ await MidwayAPI.invite(email); toast("Invite sent to "+email); $("invite-modal").style.display="none"; $("invite-email").value=""; }
-    catch(e){ toast("Invite failed: "+(e.message||e)); }
+    try{
+      const {link}=await MidwayAPI.invite(email);
+      try{ await navigator.clipboard.writeText(link); }catch(_){}
+      $("invite-modal").innerHTML=
+        '<div style="font-weight:600;margin-bottom:8px">Invite link for '+email+'</div>'+
+        '<div style="color:var(--muted);font-size:12px;margin-bottom:8px">Copied to clipboard. Send it to them — they set a password and join.</div>'+
+        '<input type="text" readonly value="'+link+'" style="width:100%;padding:9px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:var(--fg);font-size:11px;font-family:inherit" onclick="this.select()" />'+
+        '<button class="btn primary" style="width:100%;padding:10px;margin-top:12px" onclick="document.getElementById(\'invite-modal\').style.display=\'none\'">Done</button>';
+    }catch(e){ toast("Invite failed: "+(e.message||e)); }
   });
   if(window.MidwayAPI){
     MidwayAPI.onChange((u)=>{ refreshAuthUI(); if(u) loadCaptures(); });
-    // initial
-    setTimeout(()=>{ refreshAuthUI(); if(MidwayAPI.user()) loadCaptures(); else if(!READONLY) $("gate").style.display="block"; }, 600);
-    if(READONLY){ loadCaptures(); } // read-only viewers can see data if functions allow
+    MidwayAPI.init().then(()=>{ refreshAuthUI(); if(MidwayAPI.user()) loadCaptures(); });
   }
 
   resize();
