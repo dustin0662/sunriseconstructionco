@@ -69,8 +69,11 @@
       <div class="t">Midway — Drawings <span id="mode-badge" style="font-size:10px;color:var(--accent)"></span></div>
       <div class="s" id="sub">—</div>
     </div>
-    <div style="display:flex;gap:8px">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span id="who" style="color:var(--muted);font-size:11px"></span>
+      <button class="btn" id="btn-invite" style="display:none">Invite user</button>
       <button class="btn admin-only" id="btn-export">Export Excel</button>
+      <button class="btn" id="btn-auth">Sign in</button>
       <a class="btn ghost" href="dashboard.html">Dashboard</a>
     </div>
   </div>
@@ -107,16 +110,42 @@
 
   <div id="toast"></div>
 
+  <div id="gate" class="panel" style="position:fixed;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);
+       width:320px;max-width:92vw;padding:22px;text-align:center;z-index:70;display:none">
+    <div style="font-size:16px;font-weight:600;margin-bottom:6px">Sign in to enter data</div>
+    <div style="color:var(--muted);font-size:12.5px;margin-bottom:14px">Captures are shared with your team and logged with your name, date and time.</div>
+    <button class="btn primary" id="gate-login" style="width:100%;padding:12px">Sign in</button>
+    <div style="color:var(--muted);font-size:11px;margin-top:10px">Need access? Ask an admin to invite you.</div>
+  </div>
+
+  <div id="invite-modal" class="panel" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+       width:340px;max-width:92vw;padding:20px;z-index:71;display:none">
+    <div style="font-weight:600;margin-bottom:10px">Invite a teammate</div>
+    <input type="email" id="invite-email" placeholder="name@company.com"
+       style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:var(--fg);font-size:14px;font-family:inherit" />
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn primary" id="invite-send" style="flex:1;padding:10px">Send invite</button>
+      <button class="btn" id="invite-cancel" style="flex:1;padding:10px">Cancel</button>
+    </div>
+    <div style="color:var(--muted);font-size:11px;margin-top:8px">They'll get an email to set a password and join this project.</div>
+  </div>
+
+  <script src="assets/midway-api.js"></script>
   <script>
   const $=id=>document.getElementById(id);
   const READONLY = new URLSearchParams(location.search).get("view")==="readonly";
   if(READONLY){document.body.classList.add("readonly");$("mode-badge").textContent="READ-ONLY";}
   else $("mode-badge").textContent="ADMIN";
 
-  const ASSIGN_KEY="midway_pile_assignments_v1";
+  // Shared captures cache: moduleId -> {serial,user,ts,row,hasPhoto}. Backed by
+  // Netlify Blobs via Functions (multi-user, server-stamped user+timestamp).
   let assignments={};
-  try{assignments=JSON.parse(localStorage.getItem(ASSIGN_KEY))||{};}catch(_){assignments={};}
-  function saveAssignments(){try{localStorage.setItem(ASSIGN_KEY,JSON.stringify(assignments));}catch(e){toast("Storage full — export soon");}}
+  let signedIn=false;
+  async function loadCaptures(){
+    try{ assignments=await MidwayAPI.listCaptures(); draw(); if(currentRow)renderEntry(); }
+    catch(e){ console.warn("load captures",e); }
+  }
+  function requireAuth(){ if(!signedIn){ MidwayAPI.login(); return false; } return true; }
 
   function toast(m,ms=2200){const t=$("toast");t.textContent=m;t.classList.add("show");
     clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove("show"),ms);}
@@ -310,39 +339,44 @@
     $("e-id").textContent=m.id;
     const a=assignments[m.id]||{};
     const pw=$("photo");pw.innerHTML="";
-    if(a.photo){const im=document.createElement("img");im.src=a.photo;pw.appendChild(im);}
+    if(a.hasPhoto){const im=document.createElement("img");im.src=MidwayAPI.photoUrl(m.id,a.ts||Date.now());im.alt=m.id;pw.appendChild(im);}
     else pw.innerHTML='<div class="ph">No photo yet — tap “Take / Upload photo”.</div>';
     $("serial").value=a.serial||"";
-    $("ocr").textContent=a.photo?(a.serial?"":"No serial read — enter manually"):"—";
+    $("ocr").textContent=a.hasPhoto?(a.serial?("by "+(a.user||"?")):"No serial read — enter manually"):"—";
     // Next gated: needs a photo (and not mid-upload)
-    $("btn-next").disabled = uploading || !(assignments[m.id]&&assignments[m.id].photo);
+    $("btn-next").disabled = uploading || !(assignments[m.id]&&assignments[m.id].hasPhoto);
     $("btn-prev").disabled = entryIdx<=0;
     draw();
   }
-  $("btn-photo").addEventListener("click",()=>{if(!READONLY)$("file").click();});
+  $("btn-photo").addEventListener("click",()=>{if(READONLY)return;if(!requireAuth())return;$("file").click();});
   $("file").addEventListener("change",async e=>{
     const f=e.target.files&&e.target.files[0];if(!f)return;
     const m=entryMods[entryIdx];
-    uploading=true;$("btn-next").disabled=true;$("bar").classList.add("show");$("bar").firstElementChild.style.width="15%";
+    uploading=true;$("btn-next").disabled=true;$("bar").classList.add("show");$("bar").firstElementChild.style.width="12%";
     try{
-      const dataURL=await fileToDataURL(f);$("bar").firstElementChild.style.width="55%";
-      const a=assignments[m.id]||{};a.photo=dataURL;a.updatedAt=Date.now();assignments[m.id]=a;
-      saveAssignments();renderEntry();
-      // OCR (best-effort)
+      const dataURL=await fileToDataURL(f);$("bar").firstElementChild.style.width="40%";
+      // OCR locally first so we can store photo + serial in one server write.
       $("ocr").textContent="Reading serial…";
-      const serial=await ocrSerial(dataURL);$("bar").firstElementChild.style.width="100%";
-      if(serial){a.serial=serial;assignments[m.id]=a;saveAssignments();$("serial").value=serial;$("ocr").textContent="Read: "+serial+" (edit if wrong)";}
+      const serial=await ocrSerial(dataURL);$("bar").firstElementChild.style.width="65%";
+      // Upload to shared backend (server stamps user + timestamp).
+      const res=await MidwayAPI.saveCapture(m.id,{row:currentRow.id,serial:serial||"",photoDataUrl:dataURL});
+      $("bar").firstElementChild.style.width="100%";
+      assignments[m.id]={serial:res.serial||serial||"",user:res.user,ts:res.ts,row:res.row,hasPhoto:true};
+      if(serial){$("serial").value=serial;$("ocr").textContent="Read: "+serial+" (edit if wrong)";}
       else $("ocr").textContent="No serial detected — enter manually";
-    }catch(err){console.error(err);toast("Photo failed");}
+    }catch(err){console.error(err);toast(String(err.message||err));}
     uploading=false;$("bar").classList.remove("show");$("bar").firstElementChild.style.width="0";
     renderEntry();
     e.target.value="";
   });
-  $("serial").addEventListener("change",()=>{
-    if(READONLY)return;const m=entryMods[entryIdx];const sv=$("serial").value.trim();
-    const a=assignments[m.id]||{};if(sv)a.serial=sv;else delete a.serial;
-    if(!a.serial&&!a.photo)delete assignments[m.id];else assignments[m.id]=a;
-    saveAssignments();});
+  let serialTimer=null;
+  $("serial").addEventListener("change",async ()=>{
+    if(READONLY||!signedIn)return;const m=entryMods[entryIdx];const sv=$("serial").value.trim();
+    const a=assignments[m.id];if(!a&&!sv)return;
+    try{const res=await MidwayAPI.saveCapture(m.id,{row:currentRow.id,serial:sv});
+      assignments[m.id]={...(assignments[m.id]||{}),serial:res.serial,user:res.user,ts:res.ts,hasPhoto:res.hasPhoto};
+    }catch(err){toast("Save failed: "+(err.message||err));}
+  });
   $("btn-next").addEventListener("click",()=>{
     if(uploading)return;
     // persist any serial edit
@@ -384,15 +418,40 @@
       s.src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";s.onload=res;s.onerror=rej;document.head.appendChild(s);});}
   $("btn-export").addEventListener("click",async()=>{
     await ensureXLSX();
-    const data=[["Row","Module #","Module ID","Group","Serial","Has Photo","Updated"]];
+    const data=[["Row","Module #","Module ID","Group","Serial","Has Photo","Captured By","Captured At"]];
     rows.forEach(r=>r.modules.forEach(m=>{const a=assignments[m.id]||{};
-      data.push([r.id,m.n,m.id,r.group||"",a.serial||"",a.photo?"YES":"",
-        a.updatedAt?new Date(a.updatedAt).toISOString():""]);}));
+      data.push([r.id,m.n,m.id,r.group||"",a.serial||"",a.hasPhoto?"YES":"",
+        a.user||"", a.ts||""]);}));
     const ws=XLSX.utils.aoa_to_sheet(data);
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Modules");
     XLSX.writeFile(wb,"midway_modules.xlsx");
     toast("Exported "+(data.length-1)+" rows to Excel");
   });
+
+  // ---- Auth wiring (Netlify Identity via MidwayAPI) ----
+  function refreshAuthUI(){
+    const u = window.MidwayAPI && MidwayAPI.user();
+    signedIn = !!u;
+    $("who").textContent = u ? MidwayAPI.userName() : "";
+    $("btn-auth").textContent = u ? "Sign out" : "Sign in";
+    $("btn-invite").style.display = (u && MidwayAPI.isAdmin()) ? "" : "none";
+    $("gate").style.display = (u || READONLY) ? "none" : "block";
+  }
+  $("btn-auth").addEventListener("click",()=>{ const u=MidwayAPI.user(); u?MidwayAPI.logout():MidwayAPI.login(); });
+  $("gate-login").addEventListener("click",()=>MidwayAPI.login());
+  $("btn-invite").addEventListener("click",()=>{ $("invite-modal").style.display="block"; $("invite-email").focus(); });
+  $("invite-cancel").addEventListener("click",()=>{ $("invite-modal").style.display="none"; });
+  $("invite-send").addEventListener("click",async()=>{
+    const email=$("invite-email").value.trim(); if(!email)return;
+    try{ await MidwayAPI.invite(email); toast("Invite sent to "+email); $("invite-modal").style.display="none"; $("invite-email").value=""; }
+    catch(e){ toast("Invite failed: "+(e.message||e)); }
+  });
+  if(window.MidwayAPI){
+    MidwayAPI.onChange((u)=>{ refreshAuthUI(); if(u) loadCaptures(); });
+    // initial
+    setTimeout(()=>{ refreshAuthUI(); if(MidwayAPI.user()) loadCaptures(); else if(!READONLY) $("gate").style.display="block"; }, 600);
+    if(READONLY){ loadCaptures(); } // read-only viewers can see data if functions allow
+  }
 
   resize();
   </script>
