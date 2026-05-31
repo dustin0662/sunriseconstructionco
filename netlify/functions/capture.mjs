@@ -1,45 +1,62 @@
 // POST /.netlify/functions/capture
-// Body: { moduleId, row?, serial?, photoDataUrl? }
 // Upserts a capture. Server stamps the authenticated user + ISO timestamp.
-import { getStore } from "@netlify/blobs";
+//
+// Body (one of):
+//   { moduleId, row?, serial?, photoDataUrl? }      // upsert metadata + optional photo
+//   { moduleId, clearPhoto: true }                  // remove photo, keep serial
+//   { moduleId, remove: true }                      // delete capture entirely
+//
+// Photo bytes live in their own store (one blob per moduleId); all
+// metadata sits in a single "index" blob updated via CAS so the read
+// path is one round-trip even at 20k entries.
 import { userFromReq } from "./lib/auth.mjs";
+import { updateCaptures, photosStore } from "./lib/store.mjs";
+
+const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { "content-type": "application/json" } });
 
 export default async (req) => {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
   const me = await userFromReq(req);
-  if (!me) return new Response(JSON.stringify({ error: "Sign in required" }), { status: 401 });
+  if (!me) return json({ error: "Sign in required" }, 401);
 
-  let body; try { body = await req.json(); } catch { return new Response("Bad JSON", { status: 400 }); }
-  const { moduleId, row = "", serial = "", photoDataUrl, remove, clearPhoto } = body || {};
-  if (!moduleId) return new Response(JSON.stringify({ error: "moduleId required" }), { status: 400 });
+  let body; try { body = await req.json(); } catch { return json({ error: "Bad JSON" }, 400); }
+  const { moduleId, row, serial, photoDataUrl, remove, clearPhoto } = body || {};
+  if (!moduleId) return json({ error: "moduleId required" }, 400);
 
-  const store = getStore("captures");
+  const photos = photosStore();
 
   if (remove) {
-    try { await store.delete(moduleId); } catch {}
-    return new Response(JSON.stringify({ ok: true, removed: moduleId }), { headers: { "content-type": "application/json" } });
+    try { await photos.delete(moduleId); } catch {}
+    await updateCaptures((entries) => { delete entries[moduleId]; });
+    return json({ ok: true, removed: moduleId });
+  }
+
+  // Photo first (idempotent + retryable from the client offline queue).
+  let hasPhotoIntent = null;
+  if (clearPhoto) {
+    try { await photos.delete(moduleId); } catch {}
+    hasPhotoIntent = false;
+  } else if (photoDataUrl && photoDataUrl.startsWith("data:")) {
+    const bytes = Buffer.from(photoDataUrl.split(",")[1] || "", "base64");
+    await photos.set(moduleId, bytes);
+    hasPhotoIntent = true;
   }
 
   const ts = new Date().toISOString();
-  let existing = null;
-  try { existing = await store.getWithMetadata(moduleId, { type: "arrayBuffer" }); } catch {}
-  const prev = (existing && existing.metadata) || {};
+  let result;
+  await updateCaptures((entries) => {
+    const prev = entries[moduleId] || {};
+    const next = {
+      // serial: explicit string (incl. empty) overrides; otherwise keep prev.
+      serial: ("serial" in body) ? String(serial || "") : (prev.serial || ""),
+      row:    row || prev.row || "",
+      user:   me.name || me.email,
+      ts,
+      hasPhoto: hasPhotoIntent === null ? !!prev.hasPhoto : hasPhotoIntent,
+    };
+    entries[moduleId] = next;
+    result = { moduleId, ...next };
+  });
 
-  let value, hasPhoto = !!prev.hasPhoto;
-  if (clearPhoto) {
-    value = Buffer.from(""); hasPhoto = false;
-  } else if (photoDataUrl && photoDataUrl.startsWith("data:")) {
-    value = Buffer.from(photoDataUrl.split(",")[1] || "", "base64"); hasPhoto = true;
-  } else if (existing && existing.data) {
-    value = Buffer.from(existing.data);
-  } else { value = Buffer.from(""); }
-
-  const metadata = {
-    serial: ("serial" in body) ? String(serial || "") : (prev.serial || ""),
-    user: me.name || me.email, ts,
-    row: row || prev.row || "", hasPhoto,
-  };
-  try { await store.set(moduleId, value, { metadata }); }
-  catch (e) { return new Response(JSON.stringify({ error: String(e) }), { status: 500 }); }
-  return new Response(JSON.stringify({ ok: true, moduleId, ...metadata }), { headers: { "content-type": "application/json" } });
+  return json({ ok: true, ...result });
 };
