@@ -211,6 +211,58 @@
   function photoUrl(moduleId, bust) {
     return `${FN}/photo?id=${encodeURIComponent(moduleId)}&k=${encodeURIComponent(token || "")}` + (bust ? `&t=${bust}` : "");
   }
+  // ---- Reference docs (chunked upload) ----------------------------------
+  async function listDocs() {
+    const r = await fetch(`${FN}/drawings`, { headers: authHeader() });
+    if (!r.ok) throw new Error("drawings " + r.status);
+    return (await r.json()).docs || [];
+  }
+  async function deleteDoc(id) {
+    const r = await fetch(`${FN}/drawings`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...authHeader() },
+      body: JSON.stringify({ action: "delete", id }),
+    });
+    if (!r.ok) throw new Error("delete " + r.status);
+    return r.json();
+  }
+  // Splits the File into base64 chunks and POSTs them; calls onProgress
+  // with { sent, total, chunkIndex, chunks } so the UI can render a bar.
+  // The function-level 6 MB body cap is what forces chunking; 3 MB raw
+  // -> ~4 MB base64 keeps a healthy margin.
+  async function uploadDoc(file, { kind = "", note = "", onProgress } = {}) {
+    const begin = await fetch(`${FN}/drawings`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...authHeader() },
+      body: JSON.stringify({ action: "begin", filename: file.name, size: file.size }),
+    }).then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
+    const { id, chunkSize } = begin;
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    for (let i = 0; i < totalChunks; i++) {
+      const blob = file.slice(i * chunkSize, Math.min(file.size, (i + 1) * chunkSize));
+      const buf = await blob.arrayBuffer();
+      // Base64 encode without blowing memory on large files: chunked btoa.
+      let bin = ""; const view = new Uint8Array(buf); const STEP = 0x8000;
+      for (let p = 0; p < view.length; p += STEP) bin += String.fromCharCode.apply(null, view.subarray(p, p + STEP));
+      const data = btoa(bin);
+      const r = await fetch(`${FN}/drawings`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...authHeader() },
+        body: JSON.stringify({ action: "chunk", id, index: i, data }),
+      });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `chunk ${i} failed (${r.status})`); }
+      if (onProgress) onProgress({ sent: Math.min(file.size, (i + 1) * chunkSize), total: file.size, chunkIndex: i + 1, chunks: totalChunks });
+    }
+    const fin = await fetch(`${FN}/drawings`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...authHeader() },
+      body: JSON.stringify({ action: "finalize", id, totalChunks, filename: file.name, size: file.size, kind, note }),
+    });
+    const j = await fin.json(); if (!fin.ok) throw new Error(j.error || "finalize " + fin.status);
+    return j;
+  }
+  function docUrl(id) { return `${FN}/drawing?id=${encodeURIComponent(id)}&k=${encodeURIComponent(token || "")}`; }
+
   async function invite(email, name) {
     const j = await api("invite", { email, name });
     const link = `${location.origin}/drawings.html?invite=${encodeURIComponent(j.inviteToken)}&email=${encodeURIComponent(j.email)}`;
@@ -310,6 +362,7 @@
     login, logout,
     listCaptures, listAll, listSections, assignSections,
     saveCapture, photoUrl, invite,
+    listDocs, uploadDoc, deleteDoc, docUrl,
     token: () => token,
     onQueueChange: (fn) => qListeners.push(fn),
     onCaptureFailed: (fn) => failListeners.push(fn),
