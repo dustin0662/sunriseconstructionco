@@ -324,30 +324,63 @@
       const [sx,sy]=W2S(r.x,r.y);
       ctx.globalAlpha=0.35;
       ctx.drawImage(im,sx,sy,r.w*cam.scale,r.h*cam.scale);ctx.globalAlpha=1;});
-    // modules
+    // Modules: draw at true on-screen size (no clamping) so we don't
+    // smear neighbors into a single blob at low zoom. Per-module borders
+    // only when the cell is big enough to actually show one; when it
+    // isn't, the row gets a single outline below for state visibility.
     const selModId=(currentRow&&entryMods[entryIdx])?entryMods[entryIdx].id:null;
-    const showBorders=cam.scale>0.4;
     for(const m of modWorld){
+      const w=m.w*cam.scale, h=m.h*cam.scale;
+      const small=Math.min(w,h);
       const [sx,sy]=W2S(m.x,m.y);
-      const w=Math.max(1.4,m.w*cam.scale), h=Math.max(1.4,m.h*cam.scale);
       const {fill,border}=colorFor(m);
       const isSel=assignSelection.has(m.id);
-      ctx.globalAlpha=isSel?0.95:0.7;
+      ctx.globalAlpha=isSel?1:0.85;
       ctx.fillStyle=fill;
-      ctx.fillRect(sx-w/2,sy-h/2,w,h);
-      if(showBorders){
+      // True size when visible; floor only when invisibly small so the
+      // module is still a single discoverable pixel.
+      const dw=Math.max(0.6,w), dh=Math.max(0.6,h);
+      ctx.fillRect(sx-dw/2,sy-dh/2,dw,dh);
+      if(small>=3){
         ctx.globalAlpha=1;
-        ctx.lineWidth=isSel?2:1.2;
+        ctx.lineWidth=isSel?2:1;
         ctx.strokeStyle=isSel?"#fef08a":border;
         ctx.strokeRect(sx-w/2+0.5,sy-h/2+0.5,w-1,h-1);
       }
       if(m.id===selModId){
         ctx.globalAlpha=1;
         ctx.strokeStyle="#fff"; ctx.lineWidth=2.4;
-        ctx.strokeRect(sx-w/2-2,sy-h/2-2,w+4,h+4);
+        const ow=Math.max(8,w), oh=Math.max(8,h);
+        ctx.strokeRect(sx-ow/2-2,sy-oh/2-2,ow+4,oh+4);
       }
     }
     ctx.globalAlpha=1;
+    // Row-level state ring when zoomed too far out to see per-module
+    // borders. Red = any module in this row still uncaptured, green = all
+    // captured. Lets you spot incomplete rows from the overview.
+    {
+      const sampleW=(rows[0]&&world.ovRect[rows[0].ov].w*rows[0].cellU)||1;
+      const showRowRing = sampleW*cam.scale < 3;
+      if(showRowRing){
+        for(const r of rows){
+          if(!r._bbox)continue;
+          const [sx,sy]=W2S(r._bbox.minx,r._bbox.miny);
+          const w=(r._bbox.maxx-r._bbox.minx)*cam.scale;
+          const h=(r._bbox.maxy-r._bbox.miny)*cam.scale;
+          if(sx+w<0||sy+h<0||sx>innerWidth||sy>innerHeight)continue;
+          let anyMissing=false, any=false;
+          for(const m of r.modules){
+            any=true;
+            const a=assignments[m.id];
+            if(!a||!a.hasPhoto){anyMissing=true;break;}
+          }
+          if(!any)continue;
+          ctx.strokeStyle=anyMissing?STATE_RED:STATE_GREEN;
+          ctx.lineWidth=1.4;
+          ctx.strokeRect(sx+0.5,sy+0.5,w-1,h-1);
+        }
+      }
+    }
     // row labels (top of bbox)
     ctx.font="11px ui-sans-serif";ctx.textAlign="center";
     for(const r of rows){
