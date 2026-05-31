@@ -14,9 +14,12 @@
 // small (~3 MB at 20k entries) and photo reads are direct.
 import { getStore } from "@netlify/blobs";
 
-export const capturesStore = () => getStore("captures");
-export const sectionsStore = () => getStore("sections");
-export const photosStore   = () => getStore("photos");
+export const capturesStore       = () => getStore("captures");
+export const sectionsStore       = () => getStore("sections");
+export const photosStore         = () => getStore("photos");
+export const drawingsStore       = () => getStore("drawings");
+export const drawingChunksStore  = () => getStore("drawing-chunks");
+const drawingsIndexBlobs         = () => getStore("drawings-index");
 const INDEX_KEY = "index";
 const MAX_CAS_RETRIES = 6;
 
@@ -54,5 +57,7 @@ async function updateIndex(store, mutate) {
 
 export async function readCapturesIndex() { return readIndex(capturesStore()); }
 export async function readSectionsIndex() { return readIndex(sectionsStore()); }
+export async function readDrawingsIndex() { return readIndex(drawingsIndexBlobs()); }
 export async function updateCaptures(mutate) { return updateIndex(capturesStore(), mutate); }
 export async function updateSections(mutate) { return updateIndex(sectionsStore(), mutate); }
+export async function updateDrawingsIndex(mutate) { return updateIndex(drawingsIndexBlobs(), mutate); }

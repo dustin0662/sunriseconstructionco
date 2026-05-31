@@ -14,6 +14,7 @@ mkdir -p "$OUT/assets" "$OUT/data/kmz/files" "$OUT/models" "$OUT/netlify/functio
 cp "$ROOT/dashboard.html"                         "$OUT/index.html"
 cp "$ROOT/pile_viewer.html"                       "$OUT/model.html"
 cp "$ROOT/drawings.html"                          "$OUT/drawings.html"
+cp "$ROOT/references.html"                        "$OUT/references.html"
 cp "$ROOT/favicon.svg"                            "$OUT/favicon.svg"
 
 # Data + model
