@@ -32,7 +32,7 @@ cp "$ROOT/assets/OrbitControls-Bk8Ii4mF.js"       "$OUT/assets/"
 cp "$ROOT/assets/midway-api.js"                   "$OUT/assets/"
 
 # Serverless backend (Netlify Functions + Blobs) + deploy config
-cp "$ROOT/netlify/functions/"*.mjs                "$OUT/netlify/functions/"
+cp -r "$ROOT/netlify/functions/"*                 "$OUT/netlify/functions/"
 cp "$ROOT/netlify.deploy.toml"                    "$OUT/netlify.toml"
 cp "$ROOT/package.deploy.json"                    "$OUT/package.json"
 
