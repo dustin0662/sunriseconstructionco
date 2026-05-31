@@ -258,18 +258,24 @@
     overlaysMeta.forEach((o,i)=>{const im=new Image();
       im.onload=()=>{images[i]=im;if(--pending===0)finishLoad();};
       im.onerror=()=>{if(--pending===0)finishLoad();};
-      im.src="data/kmz/"+o.icon;});
+      // Backdrops may live under data/kmz/ (legacy orthoimagery) or be
+      // referenced directly (engineering drawing renders under data/drawings/).
+      im.src=(o.icon.indexOf("/")>=0?"data/":"data/kmz/")+o.icon;});
   }).catch(e=>{$("loading").textContent="Failed to load: "+e;});
   function finishLoad(){$("loading").classList.add("hidden");precomputeModules();fit();draw();}
 
   function computeWorld(){
-    if(!kmz||!kmz.overlays){world={ovRect:overlaysMeta.map((o,i)=>({x:0,y:i*(o.h+20),w:o.w,h:o.h}))};return;}
+    // Fallback (no KMZ geo-ref, or overlay icon doesn't match a KMZ entry):
+    // place each overlay as its own native-px rect stacked vertically.
+    const directRects=overlaysMeta.map((o,i)=>({x:0,y:i*(o.h+20),w:o.w,h:o.h}));
+    if(!kmz||!kmz.overlays){world={ovRect:directRects};return;}
     const ovs=kmz.overlays; const lat0=Math.max(...ovs.map(o=>o.north));
     const lon0=Math.min(...ovs.map(o=>o.west));
     const cosLat=Math.cos(lat0*Math.PI/180); const SC=100000;
     const rectFor=ov=>{const x=(ov.west-lon0)*cosLat*SC,x1=(ov.east-lon0)*cosLat*SC;
       const y=(lat0-ov.north)*SC,y1=(lat0-ov.south)*SC;return {x,y,w:x1-x,h:y1-y,ov};};
-    world={ovRect:overlaysMeta.map(om=>{const ov=ovs.find(o=>o.icon===om.icon)||ovs[0];return rectFor(ov);})};
+    world={ovRect:overlaysMeta.map((om,i)=>{const ov=ovs.find(o=>o.icon===om.icon);
+      return ov?rectFor(ov):directRects[i];})};
   }
 
   // Flat module world cache + per-row bounding boxes (for row labels + tap).
