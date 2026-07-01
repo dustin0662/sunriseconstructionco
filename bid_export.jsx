@@ -24,7 +24,7 @@ export const SRC = {
   rep: "Kaleb LeBaron",
   repTitle: "Business Development Manager",
   phone: "+1 (619) 870-4491",
-  email: "Kaleb.LeBaron@sunriseconstructionco.com",
+  email: "Kaleb@sunriseconstructionco.com",
   address: "12856 N Hwy 183 Ste B PMB 2011, Austin, TX 78750",
   web: "sunriseconstructionco.com",
   tagline: "We Dominate Solar",
