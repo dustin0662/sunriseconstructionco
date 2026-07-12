@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#0a0a14" />
+<title>Shipment Tracking | Sun Rise Construction</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --orange:#F97316; --orangeDeep:#e86a10; --red:#c41e2e;
+    --ink:#0a0a14; --ink2:#10101e; --cream:#F5F0EB; --line:#2a2a3a;
+    --d:'Bebas Neue', 'Arial Narrow', sans-serif;
+    --b:'DM Sans', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0;}
+  body{
+    font-family:var(--b); background:var(--ink); color:var(--cream);
+    min-height:100vh; line-height:1.4;
+  }
+  .wrap{max-width:920px; margin:0 auto; padding:0 14px 60px;}
+  header.top{
+    position:sticky; top:0; z-index:20; background:rgba(10,10,20,.94);
+    backdrop-filter:blur(8px); border-bottom:1px solid var(--line);
+    display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:14px;
+  }
+  header.top .logo{width:34px; height:34px; border-radius:8px; flex:none;}
+  header.top h1{
+    font-family:var(--d); font-weight:400; font-size:26px; letter-spacing:.04em;
+    margin:0; line-height:1; color:#fff;
+  }
+  header.top .sub{font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--orange);}
+  .whobar{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background:var(--ink2); border:1px solid var(--line); border-radius:10px;
+    padding:9px 13px; margin-bottom:16px; font-size:14px;
+  }
+  .whobar b{color:#fff;}
+  .whobar .who-name{color:var(--orange); font-weight:700;}
+  .linkbtn{background:none; border:none; color:#9aa4b8; font-family:var(--b);
+    font-size:12px; text-decoration:underline; cursor:pointer; padding:4px;}
+
+  .card{
+    background:var(--ink2); border:1px solid var(--line); border-left:4px solid var(--orange);
+    border-radius:12px; padding:16px 16px 18px; margin-bottom:18px;
+  }
+  .card h2{
+    font-family:var(--d); font-weight:400; font-size:22px; letter-spacing:.03em;
+    margin:0 0 14px; color:#fff;
+  }
+  .fld{margin-bottom:14px;}
+  .fld label{
+    display:block; font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+    color:#9aa4b8; margin-bottom:5px; font-weight:600;
+  }
+  .req label:after{content:" *"; color:var(--orange);}
+  select, input[type=text], textarea{
+    width:100%; font-family:var(--b); font-size:16px; color:#fff;
+    background:#0c0c18; border:1px solid var(--line); border-radius:9px;
+    padding:12px 12px; appearance:none;
+  }
+  select{
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23F97316' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat:no-repeat; background-position:right 10px center; padding-right:38px;
+  }
+  select:focus, input:focus, textarea:focus{outline:none; border-color:var(--orange);}
+  textarea{min-height:60px; resize:vertical;}
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  @media (max-width:520px){ .row2{grid-template-columns:1fr;} }
+
+  .photo-zone{
+    border:1.5px dashed var(--line); border-radius:11px; padding:16px; text-align:center;
+    background:#0c0c18;
+  }
+  .photo-zone.filled{border-style:solid; border-color:var(--orange);}
+  .photo-zone img{max-width:100%; border-radius:8px; max-height:260px; display:block; margin:0 auto;}
+  .btn{
+    font-family:var(--b); font-weight:700; font-size:15px; cursor:pointer;
+    border:none; border-radius:10px; padding:13px 18px; letter-spacing:.02em;
+    display:inline-flex; align-items:center; gap:8px; justify-content:center;
+  }
+  .btn-primary{background:var(--orange); color:#1a0f00;}
+  .btn-primary:active{background:var(--orangeDeep);}
+  .btn-ghost{background:#0c0c18; color:var(--cream); border:1px solid var(--line);}
+  .btn-block{width:100%;}
+  .btn:disabled{opacity:.5; cursor:not-allowed;}
+
+  .sig-wrap{position:relative;}
+  canvas.sig{
+    width:100%; height:170px; background:#fbfaf7; border:1px solid var(--line);
+    border-radius:9px; touch-action:none; display:block;
+  }
+  .sig-actions{display:flex; justify-content:space-between; align-items:center; margin-top:6px;}
+  .sig-hint{font-size:11px; color:#6b7280;}
+
+  .feed-head{
+    display:flex; align-items:center; justify-content:space-between; margin:4px 2px 12px;
+  }
+  .feed-head h2{font-family:var(--d); font-weight:400; font-size:24px; margin:0; color:#fff; letter-spacing:.03em;}
+  .live-dot{display:inline-flex; align-items:center; gap:7px; font-size:11px;
+    letter-spacing:.12em; text-transform:uppercase; color:#8f98ac;}
+  .live-dot i{width:8px; height:8px; border-radius:50%; background:#22c55e; display:inline-block;
+    box-shadow:0 0 0 0 rgba(34,197,94,.6); animation:pulse 1.8s infinite;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5);}70%{box-shadow:0 0 0 7px rgba(34,197,94,0);}100%{box-shadow:0 0 0 0 rgba(34,197,94,0);}}
+
+  .entry{
+    background:var(--ink2); border:1px solid var(--line); border-radius:12px;
+    padding:13px; margin-bottom:13px; display:grid; grid-template-columns:96px 1fr; gap:13px;
+  }
+  .entry .thumb{width:96px; height:96px; border-radius:9px; object-fit:cover; background:#0c0c18; border:1px solid var(--line);}
+  .entry .meta{min-width:0;}
+  .entry .meta .top-line{display:flex; justify-content:space-between; gap:8px; align-items:baseline; flex-wrap:wrap;}
+  .entry .who{font-weight:700; color:#fff; font-size:15px;}
+  .entry .ts{font-size:11px; color:#8f98ac; white-space:nowrap;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px; margin:8px 0;}
+  .chip{background:#0c0c18; border:1px solid var(--line); border-radius:999px; padding:4px 10px; font-size:12px;}
+  .chip b{color:var(--orange); font-weight:700;}
+  .entry .actions{display:flex; gap:8px; align-items:center; margin-top:4px;}
+  .entry .actions .btn{padding:8px 12px; font-size:13px;}
+  .pending{border-left:4px solid #eab308;}
+  .badge-pending{background:#eab308; color:#1a1400; font-size:10px; font-weight:700; letter-spacing:.08em;
+    text-transform:uppercase; border-radius:5px; padding:2px 7px;}
+  .empty{text-align:center; color:#6b7280; padding:30px 10px; font-size:14px;}
+
+  /* Modal */
+  .overlay{position:fixed; inset:0; background:rgba(4,4,10,.82); z-index:60;
+    display:flex; align-items:center; justify-content:center; padding:20px; backdrop-filter:blur(3px);}
+  .modal{background:var(--ink2); border:1px solid var(--line); border-top:4px solid var(--orange);
+    border-radius:14px; padding:24px; width:100%; max-width:380px;}
+  .modal h3{font-family:var(--d); font-weight:400; font-size:26px; margin:0 0 6px; color:#fff; letter-spacing:.03em;}
+  .modal p{margin:0 0 16px; font-size:13px; color:#9aa4b8;}
+
+  .toast{position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px);
+    background:#111; border:1px solid var(--line); border-left:4px solid var(--orange);
+    color:#fff; padding:12px 18px; border-radius:10px; font-size:14px; z-index:80;
+    opacity:0; pointer-events:none; transition:all .25s; max-width:90vw;}
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+  .toast.err{border-left-color:var(--red);}
+  .hide{display:none !important;}
+</style>
+</head>
+<body>
+  <header class="top">
+    <svg class="logo" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect width="32" height="32" rx="6" fill="#0a0a14"/>
+      <circle cx="16" cy="18" r="6" fill="#F97316"/>
+      <rect x="15" y="5" width="2" height="5" rx="1" fill="#F97316"/>
+      <rect x="5" y="17" width="5" height="2" rx="1" fill="#F97316" opacity=".6"/>
+      <rect x="22" y="17" width="5" height="2" rx="1" fill="#F97316" opacity=".6"/>
+    </svg>
+    <div>
+      <div class="sub">Sun Rise Construction</div>
+      <h1>Shipment Tracking</h1>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="whobar">
+      <div>Filling out as <span class="who-name" id="whoName">—</span></div>
+      <button class="linkbtn" id="changeWho">Change</button>
+    </div>
+
+    <!-- New entry -->
+    <div class="card">
+      <h2>Log a Load</h2>
+      <form id="entryForm" autocomplete="off">
+        <div class="row2">
+          <div class="fld req"><label for="f_color">Color</label>
+            <select id="f_color" required></select></div>
+          <div class="fld req"><label for="f_block">Block Going To</label>
+            <select id="f_block" required></select></div>
+        </div>
+        <div class="row2">
+          <div class="fld req"><label for="f_qty">Total Qty per Bundle</label>
+            <select id="f_qty" required></select></div>
+          <div class="fld req"><label for="f_bundles">Bundles per Load</label>
+            <select id="f_bundles" required></select></div>
+        </div>
+
+        <div class="fld">
+          <label>Notes (optional)</label>
+          <textarea id="f_notes" placeholder="Anything worth recording about this load…"></textarea>
+        </div>
+
+        <div class="fld req">
+          <label>Load Photo</label>
+          <div class="photo-zone" id="photoZone">
+            <img id="photoPreview" class="hide" alt="Load photo preview" />
+            <div id="photoPlaceholder">
+              <p style="margin:0 0 12px; font-size:13px; color:#9aa4b8;">A photo of the load is required.</p>
+              <button type="button" class="btn btn-ghost" id="photoBtn">📷 Take / Choose Photo</button>
+            </div>
+          </div>
+          <input type="file" id="photoInput" accept="image/*" capture="environment" class="hide" />
+        </div>
+
+        <div class="fld req">
+          <label>Signature — Certified Report</label>
+          <div class="sig-wrap">
+            <canvas class="sig" id="sigPad"></canvas>
+          </div>
+          <div class="sig-actions">
+            <span class="sig-hint">Sign above to certify this report.</span>
+            <button type="button" class="linkbtn" id="sigClear">Clear</button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="submitBtn">Submit Load Report</button>
+      </form>
+    </div>
+
+    <!-- Live feed -->
+    <div class="feed-head">
+      <h2>Recent Loads</h2>
+      <span class="live-dot"><i></i> Live</span>
+    </div>
+    <div id="feed"><div class="empty">Loading…</div></div>
+  </div>
+
+  <!-- Name modal -->
+  <div class="overlay hide" id="nameOverlay">
+    <div class="modal">
+      <h3>Who's filling this out?</h3>
+      <p>Your name is stamped on every load report you submit.</p>
+      <div class="fld"><input type="text" id="nameInput" placeholder="Full name" autocomplete="name" /></div>
+      <button class="btn btn-primary btn-block" id="nameSave">Continue</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+/* ==========================================================================
+   BILL OF MATERIALS — dropdown options.
+   These arrays drive every dropdown. Fill them in from the uploaded BOM.
+   Values may be strings or numbers. Order here is the order shown.
+   ========================================================================== */
+const BOM = {
+  colors:         [/* e.g. "Charcoal", "Slate Gray", "Terra Cotta" */],
+  qtyPerBundle:   [/* e.g. 10, 12, 20, 25 */],
+  bundlesPerLoad: [/* e.g. 1, 2, 3, 4, 5, 6 */],
+  blocks:         [/* e.g. "Block A", "Block B", "Block C" */],
+};
+
+/* ==========================================================================
+   Config / helpers
+   ========================================================================== */
+const API = "/.netlify/functions/entries";
+const PHOTO_API = "/.netlify/functions/photo";
+const POLL_MS = 4000;
+const OUTBOX_KEY = "shipOutbox";
+const WHO_KEY = "shipFiller";
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function toast(msg, isErr) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (isErr ? " err" : "");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.className = "toast"; }, 3200);
+}
+
+function fmtTime(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  } catch { return iso; }
+}
+
+/* ==========================================================================
+   Who is filling out
+   ========================================================================== */
+function getWho() { return localStorage.getItem(WHO_KEY) || ""; }
+function setWho(name) {
+  localStorage.setItem(WHO_KEY, name);
+  $("whoName").textContent = name;
+}
+function promptWho(force) {
+  const cur = getWho();
+  if (cur && !force) { $("whoName").textContent = cur; return; }
+  $("nameInput").value = cur;
+  $("nameOverlay").classList.remove("hide");
+  setTimeout(() => $("nameInput").focus(), 50);
+}
+$("nameSave").onclick = () => {
+  const v = $("nameInput").value.trim();
+  if (!v) { $("nameInput").focus(); return; }
+  setWho(v);
+  $("nameOverlay").classList.add("hide");
+};
+$("nameInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("nameSave").click(); });
+$("changeWho").onclick = () => promptWho(true);
+
+/* ==========================================================================
+   Dropdowns from BOM
+   ========================================================================== */
+function fillSelect(el, values, placeholder) {
+  el.innerHTML = "";
+  const ph = document.createElement("option");
+  ph.value = ""; ph.textContent = placeholder; ph.disabled = true; ph.selected = true;
+  el.appendChild(ph);
+  (values || []).forEach((v) => {
+    const o = document.createElement("option");
+    o.value = String(v); o.textContent = String(v);
+    el.appendChild(o);
+  });
+  if (!values || !values.length) {
+    const o = document.createElement("option");
+    o.value = ""; o.textContent = "(BOM not loaded yet)"; o.disabled = true;
+    el.appendChild(o);
+  }
+}
+fillSelect($("f_color"), BOM.colors, "Select color…");
+fillSelect($("f_block"), BOM.blocks, "Select block…");
+fillSelect($("f_qty"), BOM.qtyPerBundle, "Select qty…");
+fillSelect($("f_bundles"), BOM.bundlesPerLoad, "Select bundles…");
+
+/* ==========================================================================
+   Photo capture + client-side compression
+   ========================================================================== */
+let photoDataUrl = null;
+$("photoBtn").onclick = () => $("photoInput").click();
+$("photoZone").addEventListener("click", (e) => {
+  if (photoDataUrl && e.target.id !== "photoBtn") $("photoInput").click();
+});
+
+$("photoInput").addEventListener("change", async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  try {
+    photoDataUrl = await compressImage(file, 1600, 0.7);
+    // Guard: if still large, recompress smaller.
+    if (photoDataUrl.length > 4 * 1024 * 1024) {
+      photoDataUrl = await compressImage(file, 1200, 0.5);
+    }
+    const img = $("photoPreview");
+    img.src = photoDataUrl;
+    img.classList.remove("hide");
+    $("photoPlaceholder").classList.add("hide");
+    $("photoZone").classList.add("filled");
+  } catch (err) {
+    console.error(err);
+    toast("Couldn't read that photo. Try again.", true);
+  }
+});
+
+function compressImage(file, maxEdge, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("read failed"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("decode failed"));
+      img.onload = () => {
+        let { width, height } = img;
+        const scale = Math.min(1, maxEdge / Math.max(width, height));
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+        const c = document.createElement("canvas");
+        c.width = width; c.height = height;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(c.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ==========================================================================
+   Signature pad
+   ========================================================================== */
+const sig = $("sigPad");
+const sctx = sig.getContext("2d");
+let sigHasStroke = false;
+let drawing = false, lastX = 0, lastY = 0;
+
+function sizeSig() {
+  const rect = sig.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  // Preserve current drawing across resize.
+  const prev = sigHasStroke ? sig.toDataURL() : null;
+  sig.width = Math.round(rect.width * dpr);
+  sig.height = Math.round(rect.height * dpr);
+  sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  sctx.lineWidth = 2.4; sctx.lineCap = "round"; sctx.lineJoin = "round";
+  sctx.strokeStyle = "#14213d";
+  if (prev) {
+    const im = new Image();
+    im.onload = () => sctx.drawImage(im, 0, 0, rect.width, rect.height);
+    im.src = prev;
+  }
+}
+function sigPos(e) {
+  const r = sig.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+sig.addEventListener("pointerdown", (e) => {
+  drawing = true; sig.setPointerCapture(e.pointerId);
+  const p = sigPos(e); lastX = p.x; lastY = p.y;
+});
+sig.addEventListener("pointermove", (e) => {
+  if (!drawing) return;
+  const p = sigPos(e);
+  sctx.beginPath(); sctx.moveTo(lastX, lastY); sctx.lineTo(p.x, p.y); sctx.stroke();
+  lastX = p.x; lastY = p.y; sigHasStroke = true;
+});
+function endStroke() { drawing = false; }
+sig.addEventListener("pointerup", endStroke);
+sig.addEventListener("pointercancel", endStroke);
+sig.addEventListener("pointerleave", endStroke);
+$("sigClear").onclick = () => {
+  sctx.clearRect(0, 0, sig.width, sig.height); sigHasStroke = false;
+};
+window.addEventListener("resize", sizeSig);
+
+/* ==========================================================================
+   Submit
+   ========================================================================== */
+$("entryForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const who = getWho();
+  if (!who) { promptWho(true); return; }
+
+  const payload = {
+    filler: who,
+    color: $("f_color").value,
+    block: $("f_block").value,
+    qtyPerBundle: $("f_qty").value,
+    bundlesPerLoad: $("f_bundles").value,
+    notes: $("f_notes").value.trim(),
+  };
+  if (!payload.color || !payload.block || !payload.qtyPerBundle || !payload.bundlesPerLoad) {
+    toast("Fill in every dropdown first.", true); return;
+  }
+  if (!photoDataUrl) { toast("A load photo is required.", true); return; }
+  if (!sigHasStroke) { toast("Please sign to certify the report.", true); return; }
+
+  payload.photo = photoDataUrl;
+  payload.signature = sig.toDataURL("image/png");
+
+  const btn = $("submitBtn");
+  btn.disabled = true; btn.textContent = "Submitting…";
+
+  try {
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("Server " + res.status);
+    resetForm();
+    toast("Load report submitted ✓");
+    await loadFeed();
+  } catch (err) {
+    console.error(err);
+    queueOutbox(payload);
+    resetForm();
+    toast("Offline — saved & will retry automatically.", true);
+    renderFeed(lastEntries);
+  } finally {
+    btn.disabled = false; btn.textContent = "Submit Load Report";
+  }
+});
+
+function resetForm() {
+  $("f_color").selectedIndex = 0;
+  $("f_block").selectedIndex = 0;
+  $("f_qty").selectedIndex = 0;
+  $("f_bundles").selectedIndex = 0;
+  $("f_notes").value = "";
+  photoDataUrl = null;
+  $("photoPreview").classList.add("hide"); $("photoPreview").src = "";
+  $("photoPlaceholder").classList.remove("hide");
+  $("photoZone").classList.remove("filled");
+  $("sigClear").click();
+}
+
+/* ==========================================================================
+   Offline outbox
+   ========================================================================== */
+function readOutbox() { try { return JSON.parse(localStorage.getItem(OUTBOX_KEY) || "[]"); } catch { return []; } }
+function writeOutbox(a) { localStorage.setItem(OUTBOX_KEY, JSON.stringify(a)); }
+function queueOutbox(payload) {
+  const a = readOutbox();
+  a.push({ ...payload, _tmpId: "tmp_" + Math.random().toString(36).slice(2, 8), _createdAt: new Date().toISOString() });
+  writeOutbox(a);
+}
+async function flushOutbox() {
+  let a = readOutbox();
+  if (!a.length) return;
+  const remaining = [];
+  for (const item of a) {
+    try {
+      const { _tmpId, _createdAt, ...payload } = item;
+      const res = await fetch(API, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("retry failed");
+    } catch { remaining.push(item); }
+  }
+  writeOutbox(remaining);
+}
+
+/* ==========================================================================
+   Live feed (polling)
+   ========================================================================== */
+let lastEntries = [];
+let paused = false;
+
+async function loadFeed() {
+  if (paused) return;
+  try {
+    await flushOutbox();
+    const res = await fetch(API, { headers: { "accept": "application/json" } });
+    if (!res.ok) throw new Error("Server " + res.status);
+    lastEntries = await res.json();
+    renderFeed(lastEntries);
+  } catch (err) {
+    // Keep last-good list; still show any pending outbox items.
+    renderFeed(lastEntries);
+  }
+}
+
+function renderFeed(serverEntries) {
+  const feed = $("feed");
+  const pending = readOutbox();
+  const items = [];
+
+  pending.forEach((p) => items.push({
+    _pending: true, id: p._tmpId, createdAt: p._createdAt,
+    filler: p.filler, color: p.color, block: p.block,
+    qtyPerBundle: p.qtyPerBundle, bundlesPerLoad: p.bundlesPerLoad,
+    notes: p.notes, _photo: p.photo, signature: p.signature,
+  }));
+  (serverEntries || []).forEach((s) => items.push(s));
+
+  if (!items.length) {
+    feed.innerHTML = '<div class="empty">No loads logged yet. Submit the first one above.</div>';
+    return;
+  }
+
+  feed.innerHTML = items.map((en) => {
+    const photoSrc = en._pending
+      ? (en._photo || "")
+      : PHOTO_API + "?key=" + encodeURIComponent(en.photoKey || "");
+    const chips = [
+      ["Color", en.color], ["Block", en.block],
+      ["Qty/Bundle", en.qtyPerBundle], ["Bundles/Load", en.bundlesPerLoad],
+    ].map(([k, v]) => '<span class="chip">' + esc(k) + ' <b>' + esc(v) + '</b></span>').join("");
+    const pendBadge = en._pending ? '<span class="badge-pending">Pending</span>' : '';
+    const notes = en.notes ? '<div style="font-size:13px;color:#b9c0cf;margin:4px 0 2px;">' + esc(en.notes) + '</div>' : '';
+    const actions = en._pending ? '' :
+      '<button class="btn btn-ghost" data-pdf="' + esc(en.id) + '">🧾 Export PDF</button>';
+    return (
+      '<div class="entry ' + (en._pending ? "pending" : "") + '">' +
+        '<img class="thumb" src="' + esc(photoSrc) + '" alt="Load photo" loading="lazy" />' +
+        '<div class="meta">' +
+          '<div class="top-line"><span class="who">' + esc(en.filler) + ' ' + pendBadge + '</span>' +
+            '<span class="ts">' + esc(fmtTime(en.createdAt)) + '</span></div>' +
+          '<div class="chips">' + chips + '</div>' +
+          notes +
+          '<div class="actions">' + actions + '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join("");
+
+  feed.querySelectorAll("[data-pdf]").forEach((b) => {
+    b.onclick = () => {
+      const en = (serverEntries || []).find((x) => x.id === b.getAttribute("data-pdf"));
+      if (en) exportPDF(en);
+    };
+  });
+}
+
+/* ==========================================================================
+   PDF export — branded print report (window.print pattern)
+   ========================================================================== */
+async function exportPDF(en) {
+  let photoData = "";
+  try {
+    const r = await fetch(PHOTO_API + "?key=" + encodeURIComponent(en.photoKey));
+    const blob = await r.blob();
+    photoData = await blobToDataUrl(blob);
+  } catch { /* report still prints without photo */ }
+
+  const html = buildReportHTML(en, photoData);
+  paused = true;
+  const w = window.open("", "_blank");
+  if (!w) { paused = false; toast("Allow pop-ups to export the PDF.", true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+  const go = () => { try { w.focus(); w.print(); } catch (e) {} paused = false; };
+  // Wait for the embedded images to load, then print.
+  if (w.document.readyState === "complete") setTimeout(go, 400);
+  else w.onload = () => setTimeout(go, 400);
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+function buildReportHTML(en, photoData) {
+  const logo = "data:image/svg+xml;utf8," + encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230a0a14'/><circle cx='16' cy='18' r='6' fill='%23F97316'/><rect x='15' y='5' width='2' height='5' rx='1' fill='%23F97316'/><rect x='5' y='17' width='5' height='2' rx='1' fill='%23F97316' opacity='.6'/><rect x='22' y='17' width='5' height='2' rx='1' fill='%23F97316' opacity='.6'/></svg>"
+  );
+  const rows = [
+    ["Color", en.color], ["Block Going To", en.block],
+    ["Total Qty per Bundle", en.qtyPerBundle], ["Bundles per Load", en.bundlesPerLoad],
+  ].map(([k, v]) =>
+    '<div class="card"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>'
+  ).join("");
+  const dt = new Date(en.createdAt);
+  const when = isNaN(dt) ? esc(en.createdAt) : dt.toLocaleString();
+
+  return '<!doctype html><html><head><meta charset="utf-8"><title>Load Report ' + esc(en.id) + '</title>' +
+    '<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@500;600&family=DM+Sans:wght@400;600;700&display=swap" rel="stylesheet">' +
+    '<style>' +
+    '*{box-sizing:border-box;} body{font-family:"DM Sans",sans-serif;color:#0a0a14;margin:0;padding:0;background:#fff;}' +
+    '.page{padding:40px 44px;max-width:800px;margin:0 auto;}' +
+    '.hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #F97316;padding-bottom:14px;}' +
+    '.hd img{width:44px;height:44px;} .hd .t{font-family:"Bebas Neue",sans-serif;font-size:34px;line-height:.9;letter-spacing:.02em;}' +
+    '.hd .s{font-family:"Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.18em;font-size:11px;color:#e86a10;}' +
+    '.hd .co{margin-left:auto;text-align:right;font-size:11px;color:#555;line-height:1.5;}' +
+    'h1{font-family:"Bebas Neue",sans-serif;font-weight:400;font-size:26px;letter-spacing:.04em;margin:22px 0 4px;}' +
+    '.subline{font-size:12px;color:#666;margin-bottom:18px;}' +
+    '.subline b{color:#0a0a14;}' +
+    '.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0;}' +
+    '.card{border:1px solid #e3ddd4;border-left:4px solid #F97316;border-radius:4px;padding:10px 13px;}' +
+    '.card .k{font-family:"Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.06em;font-size:11px;color:#888;}' +
+    '.card .v{font-family:"Bebas Neue",sans-serif;font-size:26px;color:#0a0a14;margin-top:1px;letter-spacing:.03em;}' +
+    '.sec{font-family:"Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.1em;font-size:12px;color:#888;margin:22px 0 8px;border-top:1px solid #eee;padding-top:14px;}' +
+    '.photo{max-width:100%;max-height:420px;border:1px solid #e3ddd4;border-radius:6px;display:block;}' +
+    '.notes{font-size:14px;white-space:pre-wrap;}' +
+    '.sigbox{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-top:8px;}' +
+    '.sigbox img{height:90px;max-width:340px;object-fit:contain;border-bottom:1.5px solid #0a0a14;}' +
+    '.sigmeta{font-size:11px;color:#666;text-align:right;}' +
+    '.cert{margin-top:6px;font-size:11px;color:#e86a10;font-weight:700;text-transform:uppercase;letter-spacing:.08em;}' +
+    '.ft{margin-top:30px;border-top:1px solid #e3ddd4;padding-top:10px;font-size:10px;color:#999;display:flex;justify-content:space-between;}' +
+    '@page{size:letter;margin:0;} @media print{.noprint{display:none!important;}}' +
+    '</style></head><body><div class="page">' +
+    '<div class="hd"><img src="' + logo + '"/><div><div class="s">Sun Rise Construction &amp; Development</div>' +
+      '<div class="t">Load Report</div></div>' +
+      '<div class="co">Sun Rise Construction and Development LLC<br>sunriseconstructionco.com<br>Report #' + esc(en.id) + '</div></div>' +
+    '<h1>Shipment / Load Tracking</h1>' +
+    '<div class="subline">Filed by <b>' + esc(en.filler) + '</b> &nbsp;·&nbsp; ' + esc(when) + '</div>' +
+    '<div class="grid">' + rows + '</div>' +
+    (en.notes ? '<div class="sec">Notes</div><div class="notes">' + esc(en.notes) + '</div>' : '') +
+    '<div class="sec">Load Photo</div>' +
+    (photoData ? '<img class="photo" src="' + photoData + '"/>' : '<div style="color:#999;font-size:13px;">(photo unavailable)</div>') +
+    '<div class="sec">Certification</div>' +
+    '<div class="sigbox"><img src="' + esc(en.signature) + '" alt="signature"/>' +
+      '<div class="sigmeta">Signed by ' + esc(en.filler) + '<br>' + esc(when) + '</div></div>' +
+    '<div class="cert">Certified accurate by the signer above.</div>' +
+    '<div class="ft"><span>Sun Rise Construction &amp; Development LLC — We Dominate Solar</span><span>Generated ' + esc(new Date().toLocaleString()) + '</span></div>' +
+    '</div></body></html>';
+}
+
+/* ==========================================================================
+   Boot
+   ========================================================================== */
+document.addEventListener("visibilitychange", () => {
+  paused = document.hidden;
+  if (!document.hidden) loadFeed();
+});
+
+sizeSig();
+promptWho(false);
+loadFeed();
+setInterval(loadFeed, POLL_MS);
+</script>
+</body>
+</html>

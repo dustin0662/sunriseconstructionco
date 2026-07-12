@@ -1,0 +1,9 @@
+{
+  "name": "sunrise-functions",
+  "private": true,
+  "type": "module",
+  "description": "Netlify Functions for Sun Rise Construction tools (shipment tracking).",
+  "dependencies": {
+    "@netlify/blobs": "^10.7.9"
+  }
+}
