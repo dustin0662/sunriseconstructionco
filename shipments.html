@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="theme-color" content="#0a0a14" />
 <title>SRC Logistics Tracker | Sun Rise Construction</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -20,13 +20,17 @@
   html,body{margin:0; padding:0;}
   body{
     font-family:var(--b); background:var(--ink); color:var(--cream);
-    min-height:100vh; line-height:1.4;
+    min-height:100vh; min-height:100svh; line-height:1.4;
   }
-  .wrap{max-width:920px; margin:0 auto; padding:0 14px 60px;}
+  .wrap{
+    max-width:920px; margin:0 auto;
+    padding:0 calc(14px + env(safe-area-inset-right)) calc(60px + env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));
+  }
   header.top{
     position:sticky; top:0; z-index:20; background:rgba(10,10,20,.94);
     backdrop-filter:blur(8px); border-bottom:1px solid var(--line);
-    display:flex; align-items:center; gap:12px; padding:12px 14px; margin-bottom:14px;
+    display:flex; align-items:center; gap:12px; margin-bottom:14px;
+    padding:calc(12px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 12px calc(14px + env(safe-area-inset-left));
   }
   header.top .logo{width:34px; height:34px; border-radius:8px; flex:none;}
   header.top h1{
@@ -42,7 +46,8 @@
   .whobar b{color:#fff;}
   .whobar .who-name{color:var(--orange); font-weight:700;}
   .linkbtn{background:none; border:none; color:#9aa4b8; font-family:var(--b);
-    font-size:12px; text-decoration:underline; cursor:pointer; padding:4px;}
+    font-size:13px; text-decoration:underline; cursor:pointer;
+    min-height:40px; padding:8px 10px; display:inline-flex; align-items:center;}
 
   .card{
     background:var(--ink2); border:1px solid var(--line); border-left:4px solid var(--orange);
@@ -69,8 +74,9 @@
   }
   select:focus, input:focus, textarea:focus{outline:none; border-color:var(--orange);}
   textarea{min-height:60px; resize:vertical;}
-  .row2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
-  @media (max-width:520px){ .row2{grid-template-columns:1fr;} }
+  /* Mobile-first: single column by default, two columns on wider screens. */
+  .row2{display:grid; grid-template-columns:1fr; gap:12px;}
+  @media (min-width:560px){ .row2{grid-template-columns:1fr 1fr;} }
 
   .photo-zone{
     border:1.5px dashed var(--line); border-radius:11px; padding:16px; text-align:center;
@@ -125,6 +131,12 @@
   .badge-pending{background:#eab308; color:#1a1400; font-size:10px; font-weight:700; letter-spacing:.08em;
     text-transform:uppercase; border-radius:5px; padding:2px 7px;}
   .empty{text-align:center; color:#6b7280; padding:30px 10px; font-size:14px;}
+  /* Smallest phones (e.g. iPhone SE): shrink the thumbnail so chips stay roomy. */
+  @media (max-width:360px){
+    .entry{grid-template-columns:72px 1fr; gap:10px; padding:11px;}
+    .entry .thumb{width:72px; height:72px;}
+    header.top h1{font-size:23px;}
+  }
 
   /* Modal */
   .overlay{position:fixed; inset:0; background:rgba(4,4,10,.82); z-index:60;
