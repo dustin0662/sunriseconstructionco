@@ -78,6 +78,14 @@
   .row2{display:grid; grid-template-columns:1fr; gap:12px;}
   @media (min-width:560px){ .row2{grid-template-columns:1fr 1fr;} }
 
+  .color-row{background:#0c0c18; border:1px solid var(--line); border-radius:11px;
+    padding:12px 12px 4px; margin-bottom:10px;}
+  .color-row-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;}
+  .color-row-title{font-family:var(--d); font-weight:400; font-size:17px; letter-spacing:.04em;
+    color:var(--orange);}
+  .color-row .fld{margin-bottom:10px;}
+  #addColorBtn{margin-top:2px; border-style:dashed;}
+
   .photo-zone{
     border:1.5px dashed var(--line); border-radius:11px; padding:16px; text-align:center;
     background:#0c0c18;
@@ -130,6 +138,9 @@
   .pending{border-left:4px solid #eab308;}
   .badge-pending{background:#eab308; color:#1a1400; font-size:10px; font-weight:700; letter-spacing:.08em;
     text-transform:uppercase; border-radius:5px; padding:2px 7px;}
+  .badge-count{background:rgba(249,115,22,.16); color:var(--orange); font-size:10px; font-weight:700;
+    letter-spacing:.06em; text-transform:uppercase; border-radius:5px; padding:2px 7px;}
+  .chips + .chips{margin-top:-2px;}
   .empty{text-align:center; color:#6b7280; padding:30px 10px; font-size:14px;}
   /* Smallest phones (e.g. iPhone SE): shrink the thumbnail so chips stay roomy. */
   @media (max-width:360px){
@@ -180,17 +191,10 @@
     <div class="card">
       <h2>Log a Load</h2>
       <form id="entryForm" autocomplete="off">
-        <div class="row2">
-          <div class="fld req"><label for="f_color">Color</label>
-            <select id="f_color" required></select></div>
-          <div class="fld req"><label for="f_block">Block Going To</label>
-            <select id="f_block" required></select></div>
-        </div>
-        <div class="row2">
-          <div class="fld req"><label for="f_qty">Total Qty per Bundle</label>
-            <select id="f_qty" required></select></div>
-          <div class="fld req"><label for="f_bundles">Bundles per Load</label>
-            <select id="f_bundles" required></select></div>
+        <div class="fld">
+          <label>Colors on this Load</label>
+          <div id="colorRows"></div>
+          <button type="button" class="btn btn-ghost btn-block" id="addColorBtn">＋ Add another color</button>
         </div>
 
         <div class="fld">
@@ -240,6 +244,17 @@
       <p>Your name is stamped on every load report you submit.</p>
       <div class="fld"><input type="text" id="nameInput" placeholder="Full name" autocomplete="name" /></div>
       <button class="btn btn-primary btn-block" id="nameSave">Continue</button>
+    </div>
+  </div>
+
+  <!-- Post-submit success modal -->
+  <div class="overlay hide" id="successOverlay">
+    <div class="modal" style="text-align:center;">
+      <div style="font-size:44px; line-height:1; margin-bottom:6px;">✅</div>
+      <h3>Load Report Submitted</h3>
+      <p>Filed by <b id="successFiller" style="color:var(--orange);"></b>. Export a PDF copy of this load, or log another.</p>
+      <button class="btn btn-primary btn-block" id="successExportPdf" style="margin-bottom:10px;">📄 Export this Load's PDF</button>
+      <button class="btn btn-ghost btn-block" id="successDone">Log another load</button>
     </div>
   </div>
 
@@ -347,10 +362,59 @@ function fillSelect(el, values, placeholder) {
     el.appendChild(o);
   }
 }
-fillSelect($("f_color"), BOM.colors, "Select color…");
-fillSelect($("f_block"), BOM.blocks, "Select block…");
-fillSelect($("f_qty"), BOM.qtyPerBundle, "Select qty…");
-fillSelect($("f_bundles"), BOM.bundlesPerLoad, "Select bundles…");
+
+/* ==========================================================================
+   Repeatable color rows — one load can carry several colors, each with its
+   own qty-per-bundle, bundles-per-load and destination block.
+   ========================================================================== */
+let colorSeq = 0;
+function addColorRow() {
+  colorSeq += 1;
+  const row = document.createElement("div");
+  row.className = "color-row";
+  row.innerHTML =
+    '<div class="color-row-head">' +
+      '<span class="color-row-title"></span>' +
+      '<button type="button" class="linkbtn removeColor">Remove</button>' +
+    '</div>' +
+    '<div class="row2">' +
+      '<div class="fld req"><label>Color</label><select class="ci-color" required></select></div>' +
+      '<div class="fld req"><label>Block Going To</label><select class="ci-block" required></select></div>' +
+    '</div>' +
+    '<div class="row2">' +
+      '<div class="fld req"><label>Total Qty per Bundle</label><select class="ci-qty" required></select></div>' +
+      '<div class="fld req"><label>Bundles per Load</label><select class="ci-bundles" required></select></div>' +
+    '</div>';
+  fillSelect(row.querySelector(".ci-color"), BOM.colors, "Select color…");
+  fillSelect(row.querySelector(".ci-block"), BOM.blocks, "Select block…");
+  fillSelect(row.querySelector(".ci-qty"), BOM.qtyPerBundle, "Select qty…");
+  fillSelect(row.querySelector(".ci-bundles"), BOM.bundlesPerLoad, "Select bundles…");
+  row.querySelector(".removeColor").onclick = () => { row.remove(); renumberColorRows(); };
+  $("colorRows").appendChild(row);
+  renumberColorRows();
+}
+function renumberColorRows() {
+  const rows = $("colorRows").querySelectorAll(".color-row");
+  rows.forEach((r, i) => {
+    r.querySelector(".color-row-title").textContent = "Color " + (i + 1);
+    // Hide "Remove" when only one row remains.
+    r.querySelector(".removeColor").style.visibility = rows.length > 1 ? "visible" : "hidden";
+  });
+}
+function collectColorItems() {
+  const items = [];
+  $("colorRows").querySelectorAll(".color-row").forEach((r) => {
+    items.push({
+      color: r.querySelector(".ci-color").value,
+      block: r.querySelector(".ci-block").value,
+      qtyPerBundle: r.querySelector(".ci-qty").value,
+      bundlesPerLoad: r.querySelector(".ci-bundles").value,
+    });
+  });
+  return items;
+}
+$("addColorBtn").onclick = () => addColorRow();
+addColorRow(); // start with one
 
 /* ==========================================================================
    Photo capture + client-side compression
@@ -460,22 +524,24 @@ $("entryForm").addEventListener("submit", async (e) => {
   const who = getWho();
   if (!who) { promptWho(true); return; }
 
-  const payload = {
-    filler: who,
-    color: $("f_color").value,
-    block: $("f_block").value,
-    qtyPerBundle: $("f_qty").value,
-    bundlesPerLoad: $("f_bundles").value,
-    notes: $("f_notes").value.trim(),
-  };
-  if (!payload.color || !payload.block || !payload.qtyPerBundle || !payload.bundlesPerLoad) {
-    toast("Fill in every dropdown first.", true); return;
+  const items = collectColorItems();
+  if (!items.length) { toast("Add at least one color.", true); return; }
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (!it.color || !it.block || !it.qtyPerBundle || !it.bundlesPerLoad) {
+      toast("Fill in every field for Color " + (i + 1) + ".", true); return;
+    }
   }
   if (!photoDataUrl) { toast("A load photo is required.", true); return; }
   if (!sigHasStroke) { toast("Please sign to certify the report.", true); return; }
 
-  payload.photo = photoDataUrl;
-  payload.signature = sig.toDataURL("image/png");
+  const payload = {
+    filler: who,
+    items,
+    notes: $("f_notes").value.trim(),
+    photo: photoDataUrl,
+    signature: sig.toDataURL("image/png"),
+  };
 
   const btn = $("submitBtn");
   btn.disabled = true; btn.textContent = "Submitting…";
@@ -487,9 +553,10 @@ $("entryForm").addEventListener("submit", async (e) => {
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error("Server " + res.status);
+    const saved = await res.json();
     resetForm();
-    toast("Load report submitted ✓");
     await loadFeed();
+    showSubmitSuccess(saved);
   } catch (err) {
     console.error(err);
     queueOutbox(payload);
@@ -502,10 +569,8 @@ $("entryForm").addEventListener("submit", async (e) => {
 });
 
 function resetForm() {
-  $("f_color").selectedIndex = 0;
-  $("f_block").selectedIndex = 0;
-  $("f_qty").selectedIndex = 0;
-  $("f_bundles").selectedIndex = 0;
+  $("colorRows").innerHTML = "";
+  addColorRow();
   $("f_notes").value = "";
   photoDataUrl = null;
   $("photoPreview").classList.add("hide"); $("photoPreview").src = "";
@@ -513,6 +578,18 @@ function resetForm() {
   $("photoZone").classList.remove("filled");
   $("sigClear").click();
 }
+
+/* Post-submit: offer an immediate PDF of the load just filed. */
+function showSubmitSuccess(entry) {
+  $("successFiller").textContent = entry && entry.filler ? entry.filler : "";
+  $("successOverlay")._entry = entry;
+  $("successOverlay").classList.remove("hide");
+}
+$("successExportPdf").onclick = () => {
+  const en = $("successOverlay")._entry;
+  if (en) exportPDF(en);
+};
+$("successDone").onclick = () => { $("successOverlay").classList.add("hide"); };
 
 /* ==========================================================================
    Offline outbox
@@ -561,6 +638,12 @@ async function loadFeed() {
   }
 }
 
+/* Normalize a load to its color line-items, tolerating legacy flat entries. */
+function loadItems(en) {
+  if (en.items && en.items.length) return en.items;
+  return [{ color: en.color, block: en.block, qtyPerBundle: en.qtyPerBundle, bundlesPerLoad: en.bundlesPerLoad }];
+}
+
 function renderFeed(serverEntries) {
   const feed = $("feed");
   const pending = readOutbox();
@@ -568,9 +651,8 @@ function renderFeed(serverEntries) {
 
   pending.forEach((p) => items.push({
     _pending: true, id: p._tmpId, createdAt: p._createdAt,
-    filler: p.filler, color: p.color, block: p.block,
-    qtyPerBundle: p.qtyPerBundle, bundlesPerLoad: p.bundlesPerLoad,
-    notes: p.notes, _photo: p.photo, signature: p.signature,
+    filler: p.filler, items: p.items, notes: p.notes,
+    _photo: p.photo, signature: p.signature,
   }));
   (serverEntries || []).forEach((s) => items.push(s));
 
@@ -583,10 +665,16 @@ function renderFeed(serverEntries) {
     const photoSrc = en._pending
       ? (en._photo || "")
       : PHOTO_API + "?key=" + encodeURIComponent(en.photoKey || "");
-    const chips = [
-      ["Color", en.color], ["Block", en.block],
-      ["Qty/Bundle", en.qtyPerBundle], ["Bundles/Load", en.bundlesPerLoad],
-    ].map(([k, v]) => '<span class="chip">' + esc(k) + ' <b>' + esc(v) + '</b></span>').join("");
+    const li = loadItems(en);
+    const colorLines = li.map((it) =>
+      '<div class="chips">' +
+        '<span class="chip">Color <b>' + esc(it.color) + '</b></span>' +
+        '<span class="chip">Block <b>' + esc(it.block) + '</b></span>' +
+        '<span class="chip">Qty/Bundle <b>' + esc(it.qtyPerBundle) + '</b></span>' +
+        '<span class="chip">Bundles/Load <b>' + esc(it.bundlesPerLoad) + '</b></span>' +
+      '</div>'
+    ).join("");
+    const countBadge = li.length > 1 ? '<span class="badge-count">' + li.length + ' colors</span>' : '';
     const pendBadge = en._pending ? '<span class="badge-pending">Pending</span>' : '';
     const notes = en.notes ? '<div style="font-size:13px;color:#b9c0cf;margin:4px 0 2px;">' + esc(en.notes) + '</div>' : '';
     const actions = en._pending ? '' :
@@ -595,9 +683,9 @@ function renderFeed(serverEntries) {
       '<div class="entry ' + (en._pending ? "pending" : "") + '">' +
         '<img class="thumb" src="' + esc(photoSrc) + '" alt="Load photo" loading="lazy" />' +
         '<div class="meta">' +
-          '<div class="top-line"><span class="who">' + esc(en.filler) + ' ' + pendBadge + '</span>' +
+          '<div class="top-line"><span class="who">' + esc(en.filler) + ' ' + countBadge + ' ' + pendBadge + '</span>' +
             '<span class="ts">' + esc(fmtTime(en.createdAt)) + '</span></div>' +
-          '<div class="chips">' + chips + '</div>' +
+          colorLines +
           notes +
           '<div class="actions">' + actions + '</div>' +
         '</div>' +
@@ -646,12 +734,15 @@ function blobToDataUrl(blob) {
 
 function buildReportHTML(en, photoData) {
   const logo = SRC_LOGO;
-  const rows = [
-    ["Color", en.color], ["Block Going To", en.block],
-    ["Total Qty per Bundle", en.qtyPerBundle], ["Bundles per Load", en.bundlesPerLoad],
-  ].map(([k, v]) =>
-    '<div class="card"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div></div>'
+  const li = loadItems(en);
+  const itemRows = li.map((it, i) =>
+    '<tr><td class="cnum">' + (i + 1) + '</td><td class="ccol">' + esc(it.color) + '</td>' +
+    '<td>' + esc(it.block) + '</td><td class="cnum">' + esc(it.qtyPerBundle) + '</td>' +
+    '<td class="cnum">' + esc(it.bundlesPerLoad) + '</td></tr>'
   ).join("");
+  const itemsTable =
+    '<table class="itbl"><thead><tr><th>#</th><th>Color</th><th>Block</th>' +
+    '<th>Qty / Bundle</th><th>Bundles / Load</th></tr></thead><tbody>' + itemRows + '</tbody></table>';
   const dt = new Date(en.createdAt);
   const when = isNaN(dt) ? esc(en.createdAt) : dt.toLocaleString();
 
@@ -671,6 +762,11 @@ function buildReportHTML(en, photoData) {
     '.card{border:1px solid #e3ddd4;border-left:4px solid #F97316;border-radius:4px;padding:10px 13px;}' +
     '.card .k{font-family:"Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.06em;font-size:11px;color:#888;}' +
     '.card .v{font-family:"Bebas Neue",sans-serif;font-size:26px;color:#0a0a14;margin-top:1px;letter-spacing:.03em;}' +
+    '.itbl{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px;}' +
+    '.itbl th{background:#0a0a14;color:#fff;font-family:"Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.06em;font-size:11px;text-align:left;padding:7px 10px;}' +
+    '.itbl td{border-bottom:1px solid #e3ddd4;padding:8px 10px;}' +
+    '.itbl .cnum{text-align:center;} .itbl .ccol{font-weight:700;color:#e86a10;}' +
+    '.itbl tr:nth-child(even) td{background:#faf8f5;}' +
     '.sec{font-family:"Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.1em;font-size:12px;color:#888;margin:22px 0 8px;border-top:1px solid #eee;padding-top:14px;}' +
     '.photo{max-width:100%;max-height:420px;border:1px solid #e3ddd4;border-radius:6px;display:block;}' +
     '.notes{font-size:14px;white-space:pre-wrap;}' +
@@ -685,8 +781,9 @@ function buildReportHTML(en, photoData) {
       '<div class="t">Load Report</div></div>' +
       '<div class="co">Sun Rise Construction and Development LLC<br>sunriseconstructionco.com<br>Report #' + esc(en.id) + '</div></div>' +
     '<h1>Shipment / Load Tracking</h1>' +
-    '<div class="subline">Filed by <b>' + esc(en.filler) + '</b> &nbsp;·&nbsp; ' + esc(when) + '</div>' +
-    '<div class="grid">' + rows + '</div>' +
+    '<div class="subline">Filed by <b>' + esc(en.filler) + '</b> &nbsp;·&nbsp; ' + esc(when) +
+      ' &nbsp;·&nbsp; ' + li.length + ' color' + (li.length > 1 ? 's' : '') + '</div>' +
+    '<div class="sec">Colors on this Load</div>' + itemsTable +
     (en.notes ? '<div class="sec">Notes</div><div class="notes">' + esc(en.notes) + '</div>' : '') +
     '<div class="sec">Load Photo</div>' +
     (photoData ? '<img class="photo" src="' + photoData + '"/>' : '<div style="color:#999;font-size:13px;">(photo unavailable)</div>') +

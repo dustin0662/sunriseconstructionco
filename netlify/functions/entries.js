@@ -41,10 +41,24 @@ export default async (req) => {
       return json({ error: "Invalid JSON body" }, 400);
     }
 
-    // Server-side guard mirroring the client's required fields.
-    const required = ["filler", "color", "qtyPerBundle", "bundlesPerLoad", "block"];
-    const missing = required.filter((k) => body[k] === undefined || body[k] === "" || body[k] === null);
-    if (missing.length) return json({ error: "Missing fields: " + missing.join(", ") }, 400);
+    // A load carries one or more color line-items. Accept the items array;
+    // tolerate a legacy flat payload (single color) for backward compatibility.
+    let rawItems = Array.isArray(body.items) ? body.items : null;
+    if (!rawItems && body.color) {
+      rawItems = [{ color: body.color, block: body.block, qtyPerBundle: body.qtyPerBundle, bundlesPerLoad: body.bundlesPerLoad }];
+    }
+    if (!body.filler) return json({ error: "Missing filler" }, 400);
+    if (!rawItems || !rawItems.length) return json({ error: "At least one color is required" }, 400);
+    const itemFields = ["color", "block", "qtyPerBundle", "bundlesPerLoad"];
+    const items = [];
+    for (const it of rawItems) {
+      const bad = itemFields.filter((k) => it[k] === undefined || it[k] === "" || it[k] === null);
+      if (bad.length) return json({ error: "Color item missing: " + bad.join(", ") }, 400);
+      items.push({
+        color: String(it.color), block: String(it.block),
+        qtyPerBundle: String(it.qtyPerBundle), bundlesPerLoad: String(it.bundlesPerLoad),
+      });
+    }
     if (!body.photo || typeof body.photo !== "string" || !body.photo.startsWith("data:image")) {
       return json({ error: "A load photo is required" }, 400);
     }
@@ -65,10 +79,7 @@ export default async (req) => {
       id,
       createdAt,
       filler: String(body.filler),
-      color: String(body.color),
-      qtyPerBundle: String(body.qtyPerBundle),
-      bundlesPerLoad: String(body.bundlesPerLoad),
-      block: String(body.block),
+      items,
       notes: body.notes ? String(body.notes) : "",
       photoKey,
       signature: String(body.signature), // small PNG data URL, stored inline
