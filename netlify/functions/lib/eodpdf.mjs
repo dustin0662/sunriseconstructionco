@@ -54,11 +54,17 @@ export async function buildEodPdf(data) {
     });
   });
   const sum = (arr, f) => arr.reduce((n, x) => n + f(x), 0);
+  // Destinations are whatever blocks the day's tickets actually went to —
+  // a load/day can span multiple blocks; nothing is hard-coded.
+  const distinctBlocks = [...new Set(tickets.map((t) => t.block).filter(Boolean))];
+  const destLabel = distinctBlocks.length
+    ? (distinctBlocks.length <= 3 ? distinctBlocks.join(", ") : distinctBlocks.length + " blocks")
+    : (project.block || "—");
   const totals = {
     loads: tickets.length,
     bundles: sum(tickets, (t) => num(t.bundlesPerLoad)),
     pieces: sum(tickets, (t) => t.pieces),
-    destination: project.block || (tickets[0] && tickets[0].block) || "—",
+    destination: distinctBlocks.length ? distinctBlocks.join(", ") : (project.block || "—"),
   };
   const groupAgg = (keyFn) => {
     const m = new Map();
@@ -72,6 +78,7 @@ export async function buildEodPdf(data) {
   };
   const perPerson = groupAgg((t) => t.filedBy);
   const perColor = groupAgg((t) => titleCase(t.color));
+  const perBlock = groupAgg((t) => t.block);
 
   const pageMeta = []; // {page, kind} for footer stamping
 
@@ -103,7 +110,7 @@ export async function buildEodPdf(data) {
   const header = (page) => {
     if (logo) drawLogo(page, M, LETTER[1] - 20, 26);
     T(page, LETTER[0] - M, LETTER[1] - 30, "EOD REPORT", { font: bold, size: 11, align: "right" });
-    T(page, LETTER[0] - M, LETTER[1] - 42, `${data.dateLabel || ""}  ·  ${project.name || ""} — Block ${project.block || ""}`, { font, size: 8, color: GRAY, align: "right" });
+    T(page, LETTER[0] - M, LETTER[1] - 42, `${data.dateLabel || ""}  ·  ${project.name || ""}${destLabel ? " — " + destLabel : ""}`, { font, size: 8, color: GRAY, align: "right" });
     page.drawRectangle({ x: M, y: LETTER[1] - 50, width: CW, height: 1.4, color: ORANGE });
   };
 
@@ -149,7 +156,7 @@ export async function buildEodPdf(data) {
     const p = newPage("cover");
     let y = LETTER[1] - 96;
     T(p, M, y, "EOD REPORT", { font: bold, size: 40 }); y -= 24;
-    T(p, M, y, `End of Day Logs & Reports — Project ${project.name || ""}, Block ${project.block || ""}`, { font, size: 12, color: GRAY }); y -= 14;
+    T(p, M, y, `End of Day Logs & Reports — Project ${project.name || ""}${distinctBlocks.length ? ", " + (distinctBlocks.length <= 3 ? "Blocks " + distinctBlocks.join(", ") : distinctBlocks.length + " Blocks") : ""}`, { font, size: 12, color: GRAY }); y -= 14;
     p.drawRectangle({ x: M, y: y - 4, width: CW, height: 2.5, color: ORANGE }); y -= 30;
     // details grid (two columns)
     const colL = M, colR = M + CW / 2;
@@ -205,35 +212,52 @@ export async function buildEodPdf(data) {
     if (safety.equipmentText) { T(p, M, y, "Total equipment onsite:", { font: bold, size: 9 }); y = wrap(p, M + 120, y, safety.equipmentText, { size: 9, maxWidth: CW - 124, lh: 12 }); }
   }
 
+  // ============ DELIVERIES BY BLOCK ============
+  // Shows every destination the day's loads went to and how much — a load/day
+  // can span multiple blocks, so this is derived from the tickets, not fixed.
+  if (distinctBlocks.length) {
+    const p = newPage("blocks");
+    let y = LETTER[1] - 72;
+    T(p, M, y, "DELIVERIES BY BLOCK / DESTINATION", { font: bold, size: 13 }); y -= 14;
+    T(p, M, y, `Material delivered to ${distinctBlocks.length} block${distinctBlocks.length !== 1 ? "s" : ""} this day.`, { font, size: 9.5, color: GRAY }); y -= 10;
+    table(p, M, y, [
+      { title: "Block / Destination", w: CW * 0.46 },
+      { title: "Loads", w: CW * 0.18, align: "right" },
+      { title: "Bundles", w: CW * 0.18, align: "right" },
+      { title: "Pieces", w: CW * 0.18, align: "right" },
+    ], perBlock.map((g) => [g.key, String(g.loads), String(g.bundles), String(g.pieces)]),
+      { totalRow: ["TOTAL", String(totals.loads), String(totals.bundles), String(totals.pieces)] });
+  }
+
   // ============ SECTION 1 — LOAD TICKETS SUMMARY ============
   {
     const cols = [
-      { title: "#", w: CW * 0.05, align: "right" },
-      { title: "Report ID", w: CW * 0.17 },
-      { title: "Filed By", w: CW * 0.24 },
-      { title: "Color", w: CW * 0.16, color: true },
-      { title: "Qty/Bundle", w: CW * 0.12, align: "right" },
-      { title: "Bundles", w: CW * 0.11, align: "right" },
-      { title: "Pieces", w: CW * 0.15, align: "right" },
+      { title: "#", w: CW * 0.045, align: "right" },
+      { title: "Report ID", w: CW * 0.15 },
+      { title: "Filed By", w: CW * 0.19 },
+      { title: "Color", w: CW * 0.14, color: true },
+      { title: "Block", w: CW * 0.13 },
+      { title: "Qty/Bnd", w: CW * 0.10, align: "right" },
+      { title: "Bundles", w: CW * 0.095, align: "right" },
+      { title: "Pieces", w: CW * 0.13, align: "right" },
     ];
-    const rowsPerPage = 26;
     let idx = 0, first = true;
     while (idx < tickets.length || first) {
       const p = newPage("summary");
       let y = LETTER[1] - 72;
       if (first) { T(p, M, y, "SECTION 1 — MATERIALS / LOAD TICKETS", { font: bold, size: 13 }); y -= 14;
         T(p, M, y, `${tickets.length} load ticket${tickets.length !== 1 ? "s" : ""}. Full signed tickets on the following pages.`, { font, size: 9.5, color: GRAY }); y -= 12; }
-      const slice = tickets.slice(idx, idx + rowsPerPage);
-      const rows = slice.map((t, i) => [String(idx + i + 1), "#" + t.loadId, t.filedBy, titleCase(t.color), String(t.qtyPerBundle), String(t.bundlesPerLoad), String(t.pieces)]);
-      const last = idx + rowsPerPage >= tickets.length;
-      y = table(p, M, y, cols, rows, last ? { totalRow: [null, null, null, null, null, String(totals.bundles), String(totals.pieces)] } : {});
-      // notes callouts
+      const rowsThisPage = Math.max(1, Math.floor((y - 110) / 22)); // dynamic — never overflow the page
+      const slice = tickets.slice(idx, idx + rowsThisPage);
+      const rows = slice.map((t, i) => [String(idx + i + 1), "#" + t.loadId, t.filedBy, titleCase(t.color), t.block, String(t.qtyPerBundle), String(t.bundlesPerLoad), String(t.pieces)]);
+      const last = idx + rowsThisPage >= tickets.length;
+      y = table(p, M, y, cols, rows, last ? { totalRow: [null, null, null, null, null, null, String(totals.bundles), String(totals.pieces)] } : {});
       if (last) {
         const noted = tickets.filter((t) => t.note);
         let ny = y - 12;
-        noted.slice(0, 6).forEach((t) => { ny = wrap(p, M, ny, `Note (#${t.loadId}): “${t.note}”`, { font: oblique, size: 9, color: GRAY, maxWidth: CW, lh: 12 }); });
+        noted.slice(0, 5).forEach((t) => { ny = wrap(p, M, ny, `Note (#${t.loadId}): “${t.note}”`, { font: oblique, size: 9, color: GRAY, maxWidth: CW, lh: 12 }); });
       }
-      idx += rowsPerPage; first = false;
+      idx += rowsThisPage; first = false;
       if (idx >= tickets.length) break;
     }
   }

@@ -160,6 +160,22 @@ export default async (req) => {
       return json({ ok: true, pdfKey, sizeMB: Number(mb.toFixed(2)), pages: null });
     }
 
+    if (body.action === "uploadPdf") {
+      // Store an externally-prepared EOD PDF for this day (e.g. a prior report).
+      if (!body.dataUrl || !String(body.dataUrl).startsWith("data:application/pdf")) {
+        return json({ error: "A PDF file is required" }, 400);
+      }
+      const b64 = String(body.dataUrl).split(",")[1] || "";
+      const bytes = Buffer.from(b64, "base64");
+      const mb = bytes.length / 1024 / 1024;
+      if (mb > 25) return json({ error: `That PDF is ${mb.toFixed(1)} MB (over 25 MB).` }, 413);
+      const pdfKey = `eod/${projectId}/${date}.pdf`;
+      await s.set(pdfKey, bytes, { metadata: { contentType: "application/pdf" } });
+      const next = { ...cur, issued: true, issuedAt: new Date().toISOString(), pdfKey, uploaded: true };
+      await s.setJSON(key, next);
+      return json({ ok: true, pdfKey, sizeMB: Number(mb.toFixed(2)) });
+    }
+
     return json({ error: "unknown action" }, 400);
   }
 

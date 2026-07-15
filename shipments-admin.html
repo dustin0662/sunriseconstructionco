@@ -86,6 +86,16 @@
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:#111;border:1px solid var(--line);
     border-left:4px solid var(--orange);color:#fff;padding:12px 18px;border-radius:10px;font-size:14px;z-index:80;opacity:0;pointer-events:none;transition:all .25s;max-width:90vw;}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);} .toast.err{border-left-color:var(--red);}
+  table.bom{width:100%;border-collapse:collapse;font-size:13px;}
+  table.bom th{background:#0a0a14;color:#fff;font-family:var(--b);font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:10px;text-align:left;padding:8px 10px;position:sticky;top:0;}
+  table.bom td{border-bottom:1px solid var(--line);padding:8px 10px;vertical-align:middle;}
+  table.bom td.r{text-align:right;font-variant-numeric:tabular-nums;} table.bom td.col{font-weight:700;color:var(--orange);}
+  table.bom tr.click{cursor:pointer;} table.bom tr.click:hover td{background:#12121f;}
+  table.bom tr.tot td{background:#12121f;font-weight:700;border-top:2px solid var(--line);}
+  .var-ok{color:var(--green);} .var-part{color:#eab308;} .var-over{color:var(--red);}
+  .pbar{height:7px;border-radius:4px;background:#0c0c18;border:1px solid var(--line);overflow:hidden;min-width:70px;}
+  .pbar>span{display:block;height:100%;background:var(--orange);} .pbar>span.full{background:var(--green);} .pbar>span.over{background:var(--red);}
+  .bomwrap{overflow-x:auto;} .desc{color:#9aa4b8;font-size:11px;max-width:280px;}
   .hide{display:none!important;}
 </style>
 </head>
@@ -109,6 +119,7 @@
       <div class="tabs">
         <button class="tab active" data-view="daily">Daily Reports</button>
         <button class="tab" data-view="projects">Projects</button>
+        <button class="tab" data-view="bom">BOM vs Delivered</button>
         <button class="tab" data-view="loads">All Loads</button>
       </div>
     </header>
@@ -152,6 +163,18 @@
         </div>
         <div id="list"><div class="empty">Loading…</div></div>
       </div>
+
+      <div id="viewBom" class="hide">
+        <div class="card">
+          <h2>BOM vs Delivered</h2>
+          <div class="row c2">
+            <div><label class="fl">Project</label><select id="bProject"></select></div>
+            <div><label class="fl">BOM Dataset</label><select id="bDataset"></select></div>
+          </div>
+          <div id="bomStatus" style="font-size:12px;color:#9aa4b8;margin-top:10px;"></div>
+        </div>
+        <div id="bomBody"></div>
+      </div>
     </div>
   </div>
 
@@ -183,7 +206,9 @@ document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
   $("viewDaily").classList.toggle("hide",v!=="daily");
   $("viewProjects").classList.toggle("hide",v!=="projects");
   $("viewLoads").classList.toggle("hide",v!=="loads");
+  $("viewBom").classList.toggle("hide",v!=="bom");
   if(v==="loads"&&!ALL.length) loadAllLoads();
+  if(v==="bom") initBom();
 });
 
 let PROJ=[], ACTIVE="", ALL=[];
@@ -261,14 +286,16 @@ async function openDay(date){
   const ex=data.extras||{}, t=data.totals||{loads:0,bundles:0,pieces:0};
   const dateLabel=new Date(date+"T12:00:00").toLocaleDateString([],{weekday:"long",month:"long",day:"numeric",year:"numeric"});
   const ticketRows=(data.loads||[]).map(ld=>loadItems(ld).map(it=>
-    `<tr><td>#${esc(ld.id)}</td><td>${esc(ld.filler||"")}</td><td class="c">${esc(it.color)}</td><td>${esc(it.qtyPerBundle)}</td><td>${esc(it.bundlesPerLoad)}</td><td>${(Number(it.qtyPerBundle)||0)*(Number(it.bundlesPerLoad)||0)}</td></tr>`).join("")).join("");
+    `<tr><td>#${esc(ld.id)}</td><td>${esc(ld.filler||"")}</td><td class="c">${esc(it.color)}</td><td>${esc(it.block)}</td><td>${esc(it.qtyPerBundle)}</td><td>${esc(it.bundlesPerLoad)}</td><td>${(Number(it.qtyPerBundle)||0)*(Number(it.bundlesPerLoad)||0)}</td></tr>`).join("")).join("");
+  const dayBlocks=[...new Set((data.loads||[]).flatMap(ld=>loadItems(ld).map(it=>it.block)).filter(Boolean))];
   const issuedBadge=data.issued?`<span class="badge badge-issued">Issued ${esc(fmtTime(data.issuedAt))}</span>`:`<span class="badge badge-pending">Not issued</span>`;
   box.innerHTML=`<div class="card">
     <h2>${esc(dateLabel)} ${issuedBadge}</h2>
     <div class="kpis"><div class="kpi"><div class="k">Loads</div><div class="v">${t.loads}</div></div>
       <div class="kpi"><div class="k">Bundles</div><div class="v">${t.bundles}</div></div>
       <div class="kpi"><div class="k">Pieces</div><div class="v">${t.pieces}</div></div></div>
-    ${(data.loads||[]).length?`<div style="overflow-x:auto;"><table class="mini"><thead><tr><th>Report</th><th>Filed By</th><th>Color</th><th>Qty/Bnd</th><th>Bnd</th><th>Pieces</th></tr></thead><tbody>${ticketRows}</tbody></table></div>`:'<div class="empty">No loads logged this day.</div>'}
+    ${dayBlocks.length?`<div style="font-size:12px;color:#9aa4b8;margin:-4px 0 8px;">Destinations: <b style="color:var(--orange)">${dayBlocks.map(esc).join(", ")}</b></div>`:""}
+    ${(data.loads||[]).length?`<div style="overflow-x:auto;"><table class="mini"><thead><tr><th>Report</th><th>Filed By</th><th>Color</th><th>Block</th><th>Qty/Bnd</th><th>Bnd</th><th>Pieces</th></tr></thead><tbody>${ticketRows}</tbody></table></div>`:'<div class="empty">No loads logged this day.</div>'}
   </div>
   <div class="card">
     <h2>Day Details</h2>
@@ -289,9 +316,12 @@ async function openDay(date){
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
       <button class="btn btn-ghost" id="deSave">Save Draft</button>
-      <button class="btn btn-green" id="deIssue">${data.issued?"Re-issue":"Issue to Client"}</button>
+      <button class="btn btn-green" id="deIssue">${data.issued?"Re-generate & Issue":"Generate & Issue to Client"}</button>
+      <input type="file" id="deUploadInput" accept="application/pdf" class="hide" />
+      <button class="btn btn-ghost" id="deUpload">⬆ Upload finished report (PDF)</button>
       ${data.issued?`<a class="btn btn-primary" href="${EOD}?project=${encodeURIComponent(curProject)}&date=${date}&admin=${encodeURIComponent(ADMIN_PASSCODE)}&download=1" target="_blank">⬇ Download EOD PDF</a>`:""}
     </div>
+    <div style="font-size:11px;color:#8f98ac;margin-top:8px;">Generate builds the report from the day's tickets. Or upload a finished PDF to publish it to the client for this date.</div>
   </div>`;
 
   let eq=(ex.equipment&&ex.equipment.length)?ex.equipment.slice():[{type:"",count:""}];
@@ -332,7 +362,16 @@ async function openDay(date){
     const r=await api(DAYREPORT,{action:"issue",projectId:curProject,date});
     btn.disabled=false;
     if(r&&r.ok){ toast(`Report issued to client ✓ (${r.sizeMB} MB)`); openDay(date); }
-    else btn.textContent=data.issued?"Re-issue":"Issue to Client";
+    else btn.textContent=data.issued?"Re-generate & Issue":"Generate & Issue to Client";
+  };
+  $("deUpload").onclick=()=>$("deUploadInput").click();
+  $("deUploadInput").onchange=async(e)=>{
+    const file=e.target.files[0]; if(!file)return;
+    if(file.type!=="application/pdf"){toast("Please choose a PDF.",true);return;}
+    toast("Uploading report…");
+    const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file);});
+    const r=await api(DAYREPORT,{action:"uploadPdf",projectId:curProject,date,dataUrl});
+    if(r&&r.ok){ toast(`Report published to ${date} ✓ (${r.sizeMB} MB)`); openDay(date); }
   };
 }
 
@@ -400,6 +439,116 @@ function buildReportDoc(loads,photos){return '<!doctype html><html><head><meta c
   '.subline{font-size:12px;color:#666;margin:18px 0 4px;}.subline b{color:#0a0a14;}.itbl{width:100%;border-collapse:collapse;margin:8px 0;font-size:14px;}.itbl th{background:#0a0a14;color:#fff;font-family:"Barlow Condensed",sans-serif;text-transform:uppercase;font-size:11px;text-align:left;padding:7px 10px;}.itbl td{border-bottom:1px solid #e3ddd4;padding:8px 10px;}.itbl .cnum{text-align:center;}.itbl .ccol{font-weight:700;color:#e86a10;}.itbl tr:nth-child(even) td{background:#faf8f5;}'+
   '.sec{font-family:"Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.1em;font-size:12px;color:#888;margin:20px 0 8px;border-top:1px solid #eee;padding-top:12px;}.photo{max-width:100%;max-height:380px;border:1px solid #e3ddd4;border-radius:6px;display:block;}.notes{font-size:14px;white-space:pre-wrap;}.sigbox{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-top:8px;}.sigbox img{height:80px;max-width:320px;object-fit:contain;border-bottom:1.5px solid #0a0a14;}.sigmeta{font-size:11px;color:#666;text-align:right;}.cert{margin-top:6px;font-size:11px;color:#e86a10;font-weight:700;text-transform:uppercase;letter-spacing:.08em;}@page{size:letter;margin:0;}'+
   '</style></head><body>'+loads.map(en=>loadSection(en,photos[en.id]||"")).join("")+'</body></html>';}
+
+/* ================= BOM vs DELIVERED ================= */
+const BOM_MANIFEST=[{key:"nottingham",label:"Nottingham — Piles by Block (IFC)"}];
+const _bomCache={}; let bomData=null, bomBlock=null;
+async function loadBomJson(key){ if(_bomCache[key])return _bomCache[key];
+  const r=await fetch("/data/bom-"+key+".json"); if(!r.ok)throw new Error("BOM not found"); _bomCache[key]=await r.json(); return _bomCache[key]; }
+
+function initBom(){
+  const sel=$("bProject"); const prev=sel.value||curProject||ACTIVE||(PROJ[0]&&PROJ[0].id)||"";
+  sel.innerHTML=PROJ.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")||'<option value="">No projects</option>';
+  sel.value=prev;
+  const ds=$("bDataset"); ds.innerHTML='<option value="">— none —</option>'+BOM_MANIFEST.map(b=>`<option value="${b.key}">${esc(b.label)}</option>`).join("");
+  const proj=PROJ.find(p=>p.id===sel.value);
+  ds.value=(proj&&proj.bomKey)|| (BOM_MANIFEST[0]?BOM_MANIFEST[0].key:"");
+  persistBomKey(proj, ds.value); // remember the resolved dataset (incl. auto-default)
+  sel.onchange=()=>{ const p=PROJ.find(x=>x.id===sel.value); ds.value=(p&&p.bomKey)||(BOM_MANIFEST[0]?BOM_MANIFEST[0].key:""); persistBomKey(p, ds.value); bomBlock=null; renderBom(); };
+  ds.onchange=()=>{ persistBomKey(PROJ.find(x=>x.id===sel.value), ds.value); bomBlock=null; renderBom(); };
+  renderBom();
+}
+async function persistBomKey(proj, key){ if(proj && key && proj.bomKey!==key){ proj.bomKey=key; await api(PROJECTS,{action:"update",projectId:proj.id,bomKey:key}); } }
+
+function deliveredMap(entries){ // {block:{color:pieces}}
+  const m={};
+  entries.forEach(en=>loadItems(en).forEach(it=>{
+    const b=it.block||"", c=(it.color||"").toUpperCase(); const p=(Number(it.qtyPerBundle)||0)*(Number(it.bundlesPerLoad)||0);
+    m[b]=m[b]||{}; m[b][c]=(m[b][c]||0)+p;
+  }));
+  return m;
+}
+const pctClass=(need,del)=> del>need?"over":(del>=need&&need>0?"full":"");
+const varClass=(need,del)=> del>need?"var-over":(del>=need&&need>0?"var-ok":"var-part");
+const bar=(need,del)=>{ const pct=need>0?Math.min(100,Math.round(del/need*100)):(del>0?100:0); const cls=pctClass(need,del);
+  return `<div class="pbar"><span class="${cls}" style="width:${pct}%"></span></div>`; };
+
+async function renderBom(){
+  const body=$("bomBody"), status=$("bomStatus");
+  const projId=$("bProject").value, key=$("bDataset").value;
+  if(!projId){ status.textContent=""; body.innerHTML='<div class="card"><div class="empty">Create a project first.</div></div>'; return; }
+  if(!key){ status.textContent=""; body.innerHTML='<div class="card"><div class="empty">Pick a BOM dataset above to compare against.</div></div>'; return; }
+  body.innerHTML='<div class="card"><div class="empty">Loading…</div></div>';
+  let entries=[];
+  try{ const r=await fetch(ENTRIES+"?project="+encodeURIComponent(projId)); entries=await r.json(); }catch(e){}
+  try{ bomData=await loadBomJson(key); }catch(e){ body.innerHTML='<div class="card"><div class="empty">Could not load BOM dataset.</div></div>'; return; }
+  const dm=deliveredMap(entries);
+  status.innerHTML=`BOM: <b style="color:#fff">${esc(bomData.source||key)}</b> · ${bomData.rows.length} colors · ${bomData.blocksOrder.length} blocks · ${entries.length} loads delivered`;
+
+  if(bomBlock) return renderBomBlock(dm);
+
+  // ALL-BLOCKS overview
+  let need=0,del=0;
+  const rows=bomData.blocksOrder.map(b=>{
+    const bneed=bomData.rows.reduce((n,r)=>n+(r.blocks[b]||0),0);
+    const bdel=Object.values(dm[b]||{}).reduce((n,v)=>n+v,0);
+    need+=bneed; del+=bdel;
+    const rem=bneed-bdel, pct=bneed>0?Math.round(bdel/bneed*100):0;
+    return `<tr class="click" data-block="${esc(b)}"><td class="col">${esc(b)}</td>
+      <td class="r">${bneed.toLocaleString()}</td><td class="r">${bdel.toLocaleString()}</td>
+      <td class="r ${varClass(bneed,bdel)}">${rem<0?"+"+(-rem).toLocaleString():rem.toLocaleString()}</td>
+      <td style="width:120px">${bar(bneed,bdel)}</td><td class="r">${pct}%</td></tr>`;
+  }).join("");
+  const trem=need-del, tpct=need>0?Math.round(del/need*100):0;
+  body.innerHTML=`<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+      <div style="font-size:13px;color:#9aa4b8;">Tap a block for the color-by-color breakdown.</div>
+      <button class="btn btn-ghost btn-sm" id="bomXlsx">⬇ Export Excel</button></div>
+    <div class="bomwrap"><table class="bom"><thead><tr><th>Block</th><th class="r">Needed</th><th class="r">Delivered</th><th class="r">Remaining</th><th>Progress</th><th class="r">%</th></tr></thead>
+    <tbody>${rows}<tr class="tot"><td>PROJECT TOTAL</td><td class="r">${need.toLocaleString()}</td><td class="r">${del.toLocaleString()}</td>
+      <td class="r ${varClass(need,del)}">${trem<0?"+"+(-trem).toLocaleString():trem.toLocaleString()}</td><td>${bar(need,del)}</td><td class="r">${tpct}%</td></tr></tbody></table></div>
+  </div>`;
+  body.querySelectorAll("[data-block]").forEach(tr=>tr.onclick=()=>{bomBlock=tr.dataset.block;renderBom();});
+  $("bomXlsx").onclick=()=>exportBomXlsx(dm);
+}
+
+function renderBomBlock(dm){
+  const body=$("bomBody"), b=bomBlock, del=dm[b]||{};
+  const rows=bomData.rows.map(r=>{ const need=r.blocks[b]||0; const d=del[(r.color||"").toUpperCase()]||0;
+    if(need===0 && d===0) return "";
+    const rem=need-d, pct=need>0?Math.round(d/need*100):(d>0?100:0);
+    return `<tr><td class="col">${esc(r.color)}</td><td>${esc(r.postType||"")}</td><td class="desc">${esc(r.description||"")}</td>
+      <td class="r">${need.toLocaleString()}</td><td class="r">${d.toLocaleString()}</td>
+      <td class="r ${varClass(need,d)}">${rem<0?"+"+(-rem).toLocaleString():rem.toLocaleString()}</td>
+      <td style="width:110px">${bar(need,d)}</td><td class="r">${pct}%</td></tr>`;
+  }).join("");
+  const need=bomData.rows.reduce((n,r)=>n+(r.blocks[b]||0),0);
+  const dtot=Object.values(del).reduce((n,v)=>n+v,0);
+  const rem=need-dtot, pct=need>0?Math.round(dtot/need*100):0;
+  body.innerHTML=`<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+      <button class="btn btn-ghost btn-sm" id="bomBack">‹ All blocks</button>
+      <div style="font-family:var(--d);font-size:22px;color:#fff;">Block ${esc(b)}</div>
+      <button class="btn btn-ghost btn-sm" id="bomXlsx2">⬇ Export Excel</button></div>
+    <div class="bomwrap"><table class="bom"><thead><tr><th>Color</th><th>Type</th><th>Description</th><th class="r">Needed</th><th class="r">Delivered</th><th class="r">Remaining</th><th>Progress</th><th class="r">%</th></tr></thead>
+    <tbody>${rows}<tr class="tot"><td colspan="3">TOTAL — ${esc(b)}</td><td class="r">${need.toLocaleString()}</td><td class="r">${dtot.toLocaleString()}</td>
+      <td class="r ${varClass(need,dtot)}">${rem<0?"+"+(-rem).toLocaleString():rem.toLocaleString()}</td><td>${bar(need,dtot)}</td><td class="r">${pct}%</td></tr></tbody></table></div>
+  </div>`;
+  $("bomBack").onclick=()=>{bomBlock=null;renderBom();};
+  $("bomXlsx2").onclick=()=>exportBomXlsx(dm);
+}
+
+async function exportBomXlsx(dm){
+  try{ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
+    const aoa=[["Block","Color","Type","Description","Needed","Delivered","Remaining","% Complete"]];
+    bomData.blocksOrder.forEach(b=>{ const del=dm[b]||{};
+      bomData.rows.forEach(r=>{ const need=r.blocks[b]||0; const d=del[(r.color||"").toUpperCase()]||0; if(need===0&&d===0)return;
+        aoa.push([b,r.color,r.postType||"",r.description||"",need,d,need-d,need>0?Math.round(d/need*100)+"%":""]); }); });
+    const ws=XLSX.utils.aoa_to_sheet(aoa); ws["!cols"]=[{wch:9},{wch:20},{wch:22},{wch:40},{wch:9},{wch:10},{wch:10},{wch:11}];
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"BOM vs Delivered");
+    XLSX.writeFile(wb,"bom-vs-delivered-"+fileStamp()+".xlsx"); toast("Excel exported ✓");
+  }catch(e){ toast("Excel failed (needs internet).",true); }
+}
 
 if(sessionStorage.getItem("adminOk")==="1")unlock(); else setTimeout(()=>$("passInput").focus(),60);
 </script>
