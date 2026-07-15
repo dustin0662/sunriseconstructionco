@@ -322,6 +322,12 @@ async function openDay(date){
       ${data.issued?`<a class="btn btn-primary" href="${EOD}?project=${encodeURIComponent(curProject)}&date=${date}&admin=${encodeURIComponent(ADMIN_PASSCODE)}&download=1" target="_blank">⬇ Download EOD PDF</a>`:""}
     </div>
     <div style="font-size:11px;color:#8f98ac;margin-top:8px;">Generate builds the report from the day's tickets. Or upload a finished PDF to publish it to the client for this date.</div>
+  </div>
+  <div class="card">
+    <h2>Import Loads (backfill)</h2>
+    <p style="font-size:12px;color:#9aa4b8;margin:0 0 8px;">Paste one load per line: <b>Filler, Color, Block, Qty/Bundle, Bundles</b> (optional 6th field = Note). Imports to <b>${esc(date)}</b> on this project. No photos needed — use for days that weren't logged in the field.</p>
+    <textarea id="deImport" placeholder="Ethan Ray, BLACK, PCS 3.6, 16, 2&#10;Cristian Hanson, GREEN, PCS 3.6, 16, 3"></textarea>
+    <button class="btn btn-primary" id="deImportBtn" style="margin-top:10px;">Import to ${esc(date)}</button>
   </div>`;
 
   let eq=(ex.equipment&&ex.equipment.length)?ex.equipment.slice():[{type:"",count:""}];
@@ -363,6 +369,19 @@ async function openDay(date){
     btn.disabled=false;
     if(r&&r.ok){ toast(`Report issued to client ✓ (${r.sizeMB} MB)`); openDay(date); }
     else btn.textContent=data.issued?"Re-generate & Issue":"Generate & Issue to Client";
+  };
+  $("deImportBtn").onclick=async()=>{
+    const raw=$("deImport").value.trim(); if(!raw){toast("Paste rows first.",true);return;}
+    const rows=raw.split(/\r?\n+/).map(line=>{
+      const p=line.split(/\t|,/).map(s=>s.trim());
+      if(p.length<5||!p[1]||!p[3]||!p[4])return null;
+      return {filler:p[0],color:p[1].toUpperCase(),block:p[2],qtyPerBundle:p[3],bundlesPerLoad:p[4],note:p[5]||""};
+    }).filter(Boolean);
+    if(!rows.length){toast("Couldn't parse any rows (need Filler, Color, Block, Qty, Bundles).",true);return;}
+    const btn=$("deImportBtn");btn.disabled=true;btn.textContent="Importing…";
+    const r=await api(ENTRIES,{action:"import",date,projectId:curProject,rows});
+    btn.disabled=false;btn.textContent="Import to "+date;
+    if(r&&r.ok){toast(`Imported ${r.created} load${r.created!==1?"s":""} ✓`);$("deImport").value="";openDay(date);}
   };
   $("deUpload").onclick=()=>$("deUploadInput").click();
   $("deUploadInput").onchange=async(e)=>{
