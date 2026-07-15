@@ -12,6 +12,7 @@
 import { getStore } from "@netlify/blobs";
 
 const store = () => getStore({ name: "shipments", consistency: "strong" });
+const ADMIN = process.env.ADMIN_PASSCODE || "sunrise2026";
 
 // Business date for a load: prefer the client-supplied local date (crew's
 // device is in the site's timezone) and fall back to the UTC date.
@@ -44,6 +45,37 @@ export default async (req) => {
       body = await req.json();
     } catch {
       return json({ error: "Invalid JSON body" }, 400);
+    }
+
+    // Admin bulk backfill: create many loads for a past date without photos
+    // (used to import a day that wasn't logged in the field).
+    if (body.action === "import") {
+      if ((body.admin || "") !== ADMIN) return json({ error: "unauthorized" }, 401);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(body.date || "")) return json({ error: "date (YYYY-MM-DD) required" }, 400);
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      if (!rows.length) return json({ error: "no rows to import" }, 400);
+      // Resolve the project: explicit, else the active one.
+      let projectId = body.projectId || "";
+      if (!projectId) { const active = await s.get("config/active", { type: "json" }).catch(() => null); projectId = (active && active.projectId) || ""; }
+      let projectName = "";
+      if (projectId) { const proj = await s.get(`projects/${projectId}`, { type: "json" }).catch(() => null); projectName = (proj && proj.name) || ""; }
+      let created = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r.color || !r.qtyPerBundle || !r.bundlesPerLoad) continue;
+        const id = (r.id && String(r.id).replace(/[^a-z0-9]/gi, "")) || Math.random().toString(36).slice(2, 10);
+        // Order the createdAt within the day so sorting stays stable.
+        const createdAt = `${body.date}T${String(8 + Math.floor(i / 6)).padStart(2, "0")}:${String((i % 6) * 10).padStart(2, "0")}:00.000Z`;
+        const entry = {
+          id, createdAt, localDate: body.date, whenLabel: (r.whenLabel || new Date(createdAt).toLocaleString()),
+          projectId, projectName, filler: String(r.filler || ""),
+          items: [{ color: String(r.color), block: String(r.block || ""), qtyPerBundle: String(r.qtyPerBundle), bundlesPerLoad: String(r.bundlesPerLoad) }],
+          notes: r.note ? String(r.note) : "", photoKey: "", signature: "", backfilled: true,
+        };
+        await s.setJSON(`entries/${createdAt}-${id}`, entry);
+        created++;
+      }
+      return json({ ok: true, created, projectId, date: body.date });
     }
 
     // A load carries one or more color line-items. Accept the items array;
