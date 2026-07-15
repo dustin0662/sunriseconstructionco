@@ -201,15 +201,18 @@ export async function buildEodPdf(data) {
       { totalRow: ["TOTAL", String(totals.loads), String(totals.bundles), String(totals.pieces)] });
     y -= 20;
 
-    // SAFETY & INSPECTIONS
+    // SAFETY & INSPECTIONS — move to its own page if the cover is running low,
+    // so long notes/equipment never overlap the footer.
     const safety = data.safety || {};
-    T(p, M, y, "SAFETY & INSPECTIONS", { font: bold, size: 13 }); y -= 16;
-    p.drawRectangle({ x: M, y: y - 6, width: CW, height: 22, borderColor: LINE, borderWidth: 1 });
-    T(p, M + 8, y, "JSAs / Pre-Task Plans Filed", { font: bold, size: 9 });
-    T(p, M + CW * 0.34, y, safety.jsaSummary || "None", { font, size: 9, maxWidth: CW * 0.6 });
+    let sp = p;
+    if (y < 300) { sp = newPage("safety"); y = LETTER[1] - 72; }
+    T(sp, M, y, "SAFETY & INSPECTIONS", { font: bold, size: 13 }); y -= 16;
+    sp.drawRectangle({ x: M, y: y - 6, width: CW, height: 22, borderColor: LINE, borderWidth: 1 });
+    T(sp, M + 8, y, "JSAs / Pre-Task Plans Filed", { font: bold, size: 9 });
+    T(sp, M + CW * 0.34, y, safety.jsaSummary || "None", { font, size: 9, maxWidth: CW * 0.6 });
     y -= 22;
-    if (safety.dailyNotes) { T(p, M, y, "Daily Notes:", { font: bold, size: 9 }); y = wrap(p, M + 62, y, safety.dailyNotes, { size: 9, maxWidth: CW - 66, lh: 12 }); y -= 2; }
-    if (safety.equipmentText) { T(p, M, y, "Total equipment onsite:", { font: bold, size: 9 }); y = wrap(p, M + 120, y, safety.equipmentText, { size: 9, maxWidth: CW - 124, lh: 12 }); }
+    if (safety.dailyNotes) { T(sp, M, y, "Daily Notes:", { font: bold, size: 9 }); y = wrap(sp, M + 62, y, safety.dailyNotes, { size: 9, maxWidth: CW - 66, lh: 12 }); y -= 2; }
+    if (safety.equipmentText) { T(sp, M, y, "Total equipment onsite:", { font: bold, size: 9 }); y = wrap(sp, M + 120, y, safety.equipmentText, { size: 9, maxWidth: CW - 124, lh: 12 }); }
   }
 
   // ============ DELIVERIES BY BLOCK ============
@@ -286,22 +289,25 @@ export async function buildEodPdf(data) {
     if (ld.photo) {
       try {
         const img = await doc.embedJpg(ld.photo);
-        const maxW = CW, maxH = y - 150;
+        const maxW = CW, maxH = y - 185; // leave room for the certification block above the footer
         const d = img.scale(Math.min(maxW / img.width, maxH / img.height, 1));
         p.drawImage(img, { x: M, y: y - d.height, width: d.width, height: d.height });
         y -= d.height + 14;
       } catch { T(p, M, y - 12, "(photo unavailable)", { font, size: 9, color: LGRAY }); y -= 26; }
     } else { T(p, M, y - 12, "(no photo)", { font, size: 9, color: LGRAY }); y -= 26; }
-    // signature/certification
-    T(p, M, 118, "CERTIFICATION", { font: bold, size: 9, color: GRAY });
+    // Certification block, fixed above the footer. Signature rests ON/ABOVE the line.
+    T(p, M, 168, "CERTIFICATION", { font: bold, size: 9, color: GRAY });
     if (ld.signature) {
-      try { const sig = await doc.embedPng(ld.signature); const d = sig.scale(Math.min(300 / sig.width, 70 / sig.height, 1));
-        p.drawImage(sig, { x: M, y: 100 - d.height, width: d.width, height: d.height }); } catch {}
+      try {
+        const sig = await doc.embedPng(ld.signature);
+        const d = sig.scale(Math.min(300 / sig.width, 50 / sig.height, 1));
+        p.drawImage(sig, { x: M, y: 112, width: d.width, height: d.height }); // bottom sits just above the line
+      } catch {}
     }
-    p.drawLine({ start: { x: M, y: 96 }, end: { x: M + 300, y: 96 }, thickness: 1, color: INK });
-    T(p, LETTER[0] - M, 108, `Signed by ${ld.filler || ""}`, { font, size: 9, color: GRAY, align: "right" });
-    T(p, LETTER[0] - M, 96, ld.whenLabel || "", { font, size: 9, color: GRAY, align: "right" });
-    T(p, M, 80, "CERTIFIED ACCURATE BY THE SIGNER ABOVE.", { font: bold, size: 8, color: ORANGE });
+    p.drawLine({ start: { x: M, y: 110 }, end: { x: M + 300, y: 110 }, thickness: 1, color: INK });
+    T(p, LETTER[0] - M, 124, `Signed by ${ld.filler || ""}`, { font, size: 9, color: GRAY, align: "right" });
+    T(p, LETTER[0] - M, 112, ld.whenLabel || "", { font, size: 9, color: GRAY, align: "right" });
+    T(p, M, 96, "CERTIFIED ACCURATE BY THE SIGNER ABOVE.", { font: bold, size: 8, color: ORANGE });
   }
 
   // ============ SECTION 2 — JSA / ATTACHMENTS ============
