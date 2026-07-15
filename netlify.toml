@@ -5,11 +5,16 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
-# Clean URL for the shipment tracking tool. Must come before the SPA
-# catch-all below so it matches first.
+# Clean URLs for the shipment tracking tools. Must come before the SPA
+# catch-all below so they match first.
 [[redirects]]
   from = "/shipments"
   to = "/shipments.html"
+  status = 200
+
+[[redirects]]
+  from = "/loads-admin"
+  to = "/shipments-admin.html"
   status = 200
 
 [[redirects]]
