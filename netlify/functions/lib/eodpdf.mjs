@@ -199,20 +199,8 @@ export async function buildEodPdf(data) {
       { title: "Pieces", w: CW * 0.18, align: "right" },
     ], perColor.map((g) => [g.key, String(g.loads), String(g.bundles), String(g.pieces)]),
       { totalRow: ["TOTAL", String(totals.loads), String(totals.bundles), String(totals.pieces)] });
-    y -= 20;
-
-    // SAFETY & INSPECTIONS — move to its own page if the cover is running low,
-    // so long notes/equipment never overlap the footer.
-    const safety = data.safety || {};
-    let sp = p;
-    if (y < 300) { sp = newPage("safety"); y = LETTER[1] - 72; }
-    T(sp, M, y, "SAFETY & INSPECTIONS", { font: bold, size: 13 }); y -= 16;
-    sp.drawRectangle({ x: M, y: y - 6, width: CW, height: 22, borderColor: LINE, borderWidth: 1 });
-    T(sp, M + 8, y, "JSAs / Pre-Task Plans Filed", { font: bold, size: 9 });
-    T(sp, M + CW * 0.34, y, safety.jsaSummary || "None", { font, size: 9, maxWidth: CW * 0.6 });
-    y -= 22;
-    if (safety.dailyNotes) { T(sp, M, y, "Daily Notes:", { font: bold, size: 9 }); y = wrap(sp, M + 62, y, safety.dailyNotes, { size: 9, maxWidth: CW - 66, lh: 12 }); y -= 2; }
-    if (safety.equipmentText) { T(sp, M, y, "Total equipment onsite:", { font: bold, size: 9 }); y = wrap(sp, M + 120, y, safety.equipmentText, { size: 9, maxWidth: CW - 124, lh: 12 }); }
+    // SAFETY & INSPECTIONS is rendered at the end of the report (Section 2),
+    // alongside the JSA / pre-task / inspection material where it belongs.
   }
 
   // ============ DELIVERIES BY BLOCK ============
@@ -310,14 +298,27 @@ export async function buildEodPdf(data) {
     T(p, M, 96, "CERTIFIED ACCURATE BY THE SIGNER ABOVE.", { font: bold, size: 8, color: ORANGE });
   }
 
-  // ============ SECTION 2 — JSA / ATTACHMENTS ============
+  // ============ SECTION 2 — SAFETY / JSA / ATTACHMENTS ============
   const attachments = data.attachments || [];
-  if ((data.safety && data.safety.jsaSummary) || attachments.length) {
+  const safety = data.safety || {};
+  if (safety.jsaSummary || safety.dailyNotes || safety.equipmentText || attachments.length) {
     const p = newPage("jsa");
     let y = LETTER[1] - 72;
+
+    // SAFETY & INSPECTIONS summary — lives here, at the end of the report,
+    // next to the JSA / pre-task / inspection attachments.
+    T(p, M, y, "SAFETY & INSPECTIONS", { font: bold, size: 13 }); y -= 16;
+    p.drawRectangle({ x: M, y: y - 6, width: CW, height: 22, borderColor: LINE, borderWidth: 1 });
+    T(p, M + 8, y, "JSAs / Pre-Task Plans Filed", { font: bold, size: 9 });
+    T(p, M + CW * 0.34, y, safety.jsaSummary || "None", { font, size: 9, maxWidth: CW * 0.6 });
+    y -= 22;
+    if (safety.dailyNotes) { T(p, M, y, "Daily Notes:", { font: bold, size: 9 }); y = wrap(p, M + 62, y, safety.dailyNotes, { size: 9, maxWidth: CW - 66, lh: 12 }); y -= 2; }
+    if (safety.equipmentText) { T(p, M, y, "Total equipment onsite:", { font: bold, size: 9 }); y = wrap(p, M + 120, y, safety.equipmentText, { size: 9, maxWidth: CW - 124, lh: 12 }); }
+    y -= 24;
+
     T(p, M, y, "SECTION 2 — JSA / PRE-TASK PLANS & INSPECTIONS", { font: bold, size: 13 }); y -= 16;
-    if (data.safety && data.safety.jsaSummary) y = wrap(p, M, y, data.safety.jsaSummary, { size: 10, maxWidth: CW, lh: 14 });
-    if (attachments.length) { y -= 6; attachments.forEach((a) => { T(p, M, y, "• " + a.name, { font, size: 10 }); y -= 14; }); }
+    if (safety.jsaSummary) y = wrap(p, M, y, safety.jsaSummary, { size: 10, maxWidth: CW, lh: 14 });
+    if (attachments.length) { y -= 4; T(p, M, y, "Attached documents follow on the pages below.", { font: oblique, size: 9, color: GRAY }); }
   }
   // append attachment files
   for (const a of attachments) {
