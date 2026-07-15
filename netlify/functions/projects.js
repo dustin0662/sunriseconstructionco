@@ -71,7 +71,7 @@ export default async (req) => {
       const cur = await s.get(`projects/${body.projectId}`, { type: "json" }).catch(() => null);
       if (!cur) return json({ error: "not found" }, 404);
       const next = { ...cur };
-      ["name", "client", "block", "clientPin"].forEach((k) => { if (body[k] !== undefined) next[k] = String(body[k]); });
+      ["name", "client", "block", "clientPin", "bomKey"].forEach((k) => { if (body[k] !== undefined) next[k] = String(body[k]); });
       await s.setJSON(`projects/${cur.id}`, next);
       return json(next);
     }
