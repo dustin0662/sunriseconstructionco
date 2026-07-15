@@ -286,14 +286,16 @@ async function openDay(date){
   const ex=data.extras||{}, t=data.totals||{loads:0,bundles:0,pieces:0};
   const dateLabel=new Date(date+"T12:00:00").toLocaleDateString([],{weekday:"long",month:"long",day:"numeric",year:"numeric"});
   const ticketRows=(data.loads||[]).map(ld=>loadItems(ld).map(it=>
-    `<tr><td>#${esc(ld.id)}</td><td>${esc(ld.filler||"")}</td><td class="c">${esc(it.color)}</td><td>${esc(it.qtyPerBundle)}</td><td>${esc(it.bundlesPerLoad)}</td><td>${(Number(it.qtyPerBundle)||0)*(Number(it.bundlesPerLoad)||0)}</td></tr>`).join("")).join("");
+    `<tr><td>#${esc(ld.id)}</td><td>${esc(ld.filler||"")}</td><td class="c">${esc(it.color)}</td><td>${esc(it.block)}</td><td>${esc(it.qtyPerBundle)}</td><td>${esc(it.bundlesPerLoad)}</td><td>${(Number(it.qtyPerBundle)||0)*(Number(it.bundlesPerLoad)||0)}</td></tr>`).join("")).join("");
+  const dayBlocks=[...new Set((data.loads||[]).flatMap(ld=>loadItems(ld).map(it=>it.block)).filter(Boolean))];
   const issuedBadge=data.issued?`<span class="badge badge-issued">Issued ${esc(fmtTime(data.issuedAt))}</span>`:`<span class="badge badge-pending">Not issued</span>`;
   box.innerHTML=`<div class="card">
     <h2>${esc(dateLabel)} ${issuedBadge}</h2>
     <div class="kpis"><div class="kpi"><div class="k">Loads</div><div class="v">${t.loads}</div></div>
       <div class="kpi"><div class="k">Bundles</div><div class="v">${t.bundles}</div></div>
       <div class="kpi"><div class="k">Pieces</div><div class="v">${t.pieces}</div></div></div>
-    ${(data.loads||[]).length?`<div style="overflow-x:auto;"><table class="mini"><thead><tr><th>Report</th><th>Filed By</th><th>Color</th><th>Qty/Bnd</th><th>Bnd</th><th>Pieces</th></tr></thead><tbody>${ticketRows}</tbody></table></div>`:'<div class="empty">No loads logged this day.</div>'}
+    ${dayBlocks.length?`<div style="font-size:12px;color:#9aa4b8;margin:-4px 0 8px;">Destinations: <b style="color:var(--orange)">${dayBlocks.map(esc).join(", ")}</b></div>`:""}
+    ${(data.loads||[]).length?`<div style="overflow-x:auto;"><table class="mini"><thead><tr><th>Report</th><th>Filed By</th><th>Color</th><th>Block</th><th>Qty/Bnd</th><th>Bnd</th><th>Pieces</th></tr></thead><tbody>${ticketRows}</tbody></table></div>`:'<div class="empty">No loads logged this day.</div>'}
   </div>
   <div class="card">
     <h2>Day Details</h2>
@@ -314,9 +316,12 @@ async function openDay(date){
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
       <button class="btn btn-ghost" id="deSave">Save Draft</button>
-      <button class="btn btn-green" id="deIssue">${data.issued?"Re-issue":"Issue to Client"}</button>
+      <button class="btn btn-green" id="deIssue">${data.issued?"Re-generate & Issue":"Generate & Issue to Client"}</button>
+      <input type="file" id="deUploadInput" accept="application/pdf" class="hide" />
+      <button class="btn btn-ghost" id="deUpload">⬆ Upload finished report (PDF)</button>
       ${data.issued?`<a class="btn btn-primary" href="${EOD}?project=${encodeURIComponent(curProject)}&date=${date}&admin=${encodeURIComponent(ADMIN_PASSCODE)}&download=1" target="_blank">⬇ Download EOD PDF</a>`:""}
     </div>
+    <div style="font-size:11px;color:#8f98ac;margin-top:8px;">Generate builds the report from the day's tickets. Or upload a finished PDF to publish it to the client for this date.</div>
   </div>`;
 
   let eq=(ex.equipment&&ex.equipment.length)?ex.equipment.slice():[{type:"",count:""}];
@@ -357,7 +362,16 @@ async function openDay(date){
     const r=await api(DAYREPORT,{action:"issue",projectId:curProject,date});
     btn.disabled=false;
     if(r&&r.ok){ toast(`Report issued to client ✓ (${r.sizeMB} MB)`); openDay(date); }
-    else btn.textContent=data.issued?"Re-issue":"Issue to Client";
+    else btn.textContent=data.issued?"Re-generate & Issue":"Generate & Issue to Client";
+  };
+  $("deUpload").onclick=()=>$("deUploadInput").click();
+  $("deUploadInput").onchange=async(e)=>{
+    const file=e.target.files[0]; if(!file)return;
+    if(file.type!=="application/pdf"){toast("Please choose a PDF.",true);return;}
+    toast("Uploading report…");
+    const dataUrl=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file);});
+    const r=await api(DAYREPORT,{action:"uploadPdf",projectId:curProject,date,dataUrl});
+    if(r&&r.ok){ toast(`Report published to ${date} ✓ (${r.sizeMB} MB)`); openDay(date); }
   };
 }
 
