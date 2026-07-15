@@ -13,6 +13,10 @@ import { getStore } from "@netlify/blobs";
 
 const store = () => getStore({ name: "shipments", consistency: "strong" });
 
+// Business date for a load: prefer the client-supplied local date (crew's
+// device is in the site's timezone) and fall back to the UTC date.
+const localDateOf = (e) => e.localDate || String(e.createdAt || "").slice(0, 10);
+
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
@@ -23,14 +27,15 @@ export default async (req) => {
   const s = store();
 
   if (req.method === "GET") {
+    const url = new URL(req.url);
+    const wantProject = url.searchParams.get("project"); // optional filter
+    const wantDate = url.searchParams.get("date");        // optional YYYY-MM-DD (local? uses ISO date prefix)
     const { blobs } = await s.list({ prefix: "entries/" });
-    const items = await Promise.all(
-      blobs.map((b) => s.get(b.key, { type: "json" }))
-    );
-    items
-      .filter(Boolean)
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-    return json(items.filter(Boolean));
+    let items = (await Promise.all(blobs.map((b) => s.get(b.key, { type: "json" })))).filter(Boolean);
+    if (wantProject) items = items.filter((e) => e.projectId === wantProject);
+    if (wantDate) items = items.filter((e) => localDateOf(e.createdAt) === wantDate);
+    items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    return json(items);
   }
 
   if (req.method === "POST") {
@@ -68,6 +73,19 @@ export default async (req) => {
 
     const id = Math.random().toString(36).slice(2, 10);
     const createdAt = new Date().toISOString();
+    const localDate = /^\d{4}-\d{2}-\d{2}$/.test(body.localDate || "") ? body.localDate : createdAt.slice(0, 10);
+
+    // Stamp the currently-active project (admin-set) so daily reports can
+    // group by project. Crews don't choose it.
+    let projectId = "", projectName = "";
+    try {
+      const active = await s.get("config/active", { type: "json" });
+      if (active && active.projectId) {
+        projectId = active.projectId;
+        const proj = await s.get(`projects/${projectId}`, { type: "json" });
+        projectName = (proj && proj.name) || "";
+      }
+    } catch {}
 
     // Decode the JPEG data URL and store it as its own binary blob.
     const b64 = body.photo.split(",")[1] || "";
@@ -78,6 +96,10 @@ export default async (req) => {
     const entry = {
       id,
       createdAt,
+      localDate,
+      whenLabel: body.whenLabel ? String(body.whenLabel) : new Date(createdAt).toLocaleString(),
+      projectId,
+      projectName,
       filler: String(body.filler),
       items,
       notes: body.notes ? String(body.notes) : "",

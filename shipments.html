@@ -539,6 +539,8 @@ $("entryForm").addEventListener("submit", async (e) => {
     filler: who,
     items,
     notes: $("f_notes").value.trim(),
+    localDate: new Date().toLocaleDateString("en-CA"), // YYYY-MM-DD in device tz
+    whenLabel: new Date().toLocaleString(),            // device-local timestamp for reports
     photo: photoDataUrl,
     signature: sig.toDataURL("image/png"),
   };
