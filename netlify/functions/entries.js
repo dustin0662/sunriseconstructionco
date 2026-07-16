@@ -54,6 +54,7 @@ export default async (req) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(body.date || "")) return json({ error: "date (YYYY-MM-DD) required" }, 400);
       const rows = Array.isArray(body.rows) ? body.rows : [];
       if (!rows.length) return json({ error: "no rows to import" }, 400);
+      const defBlock = String(body.block || ""); // fills rows with no block (single-destination reports)
       // Resolve the project: explicit, else the active one.
       let projectId = body.projectId || "";
       if (!projectId) { const active = await s.get("config/active", { type: "json" }).catch(() => null); projectId = (active && active.projectId) || ""; }
@@ -69,13 +70,36 @@ export default async (req) => {
         const entry = {
           id, createdAt, localDate: body.date, whenLabel: (r.whenLabel || new Date(createdAt).toLocaleString()),
           projectId, projectName, filler: String(r.filler || ""),
-          items: [{ color: String(r.color), block: String(r.block || ""), qtyPerBundle: String(r.qtyPerBundle), bundlesPerLoad: String(r.bundlesPerLoad) }],
+          items: [{ color: String(r.color), block: String(r.block || defBlock), qtyPerBundle: String(r.qtyPerBundle), bundlesPerLoad: String(r.bundlesPerLoad) }],
           notes: r.note ? String(r.note) : "", photoKey: "", signature: "", backfilled: true,
         };
         await s.setJSON(`entries/${createdAt}-${id}`, entry);
         created++;
       }
       return json({ ok: true, created, projectId, date: body.date });
+    }
+
+    // Admin repair: assign a destination block to a day's loads. By default only
+    // fills items that have no block (e.g. rows imported from a single-destination
+    // report with no Block column) so the BOM/delivered tracker can attribute them.
+    if (body.action === "setBlock") {
+      if ((body.admin || "") !== ADMIN) return json({ error: "unauthorized" }, 401);
+      if (!body.projectId) return json({ error: "projectId required" }, 400);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(body.date || "")) return json({ error: "date (YYYY-MM-DD) required" }, 400);
+      const block = String(body.block || "");
+      if (!block) return json({ error: "block required" }, 400);
+      const onlyEmpty = body.onlyEmpty === false ? false : true;
+      const { blobs } = await s.list({ prefix: "entries/" });
+      let updated = 0;
+      for (const b of blobs) {
+        const e = await s.get(b.key, { type: "json" }).catch(() => null);
+        if (!e || (e.projectId || "") !== body.projectId || localDateOf(e) !== body.date) continue;
+        const items = Array.isArray(e.items) ? e.items : [];
+        let changed = false;
+        items.forEach((it) => { if (!onlyEmpty || !String(it.block || "").trim()) { if (String(it.block || "") !== block) { it.block = block; changed = true; } } });
+        if (changed) { await s.setJSON(b.key, e); updated++; }
+      }
+      return json({ ok: true, updated, projectId: body.projectId, date: body.date, block });
     }
 
     // A load carries one or more color line-items. Accept the items array;

@@ -284,6 +284,9 @@ async function openDay(date){
   try{ const r=await fetch(`${DAYREPORT}?project=${encodeURIComponent(curProject)}&date=${date}&admin=${encodeURIComponent(ADMIN_PASSCODE)}`); data=await r.json(); }
   catch(e){ box.innerHTML='<div class="card"><div class="empty">Failed to load.</div></div>'; return; }
   const ex=data.extras||{}, t=data.totals||{loads:0,bundles:0,pieces:0};
+  const _proj=PROJ.find(p=>p.id===curProject)||{};
+  const projBlock=_proj.block||"";
+  const projBomKey=_proj.bomKey||(BOM_MANIFEST[0]?BOM_MANIFEST[0].key:"");
   const dateLabel=new Date(date+"T12:00:00").toLocaleDateString([],{weekday:"long",month:"long",day:"numeric",year:"numeric"});
   const ticketRows=(data.loads||[]).map(ld=>loadItems(ld).map(it=>
     `<tr><td>#${esc(ld.id)}</td><td>${esc(ld.filler||"")}</td><td class="c">${esc(it.color)}</td><td>${esc(it.block)}</td><td>${esc(it.qtyPerBundle)}</td><td>${esc(it.bundlesPerLoad)}</td><td>${(Number(it.qtyPerBundle)||0)*(Number(it.bundlesPerLoad)||0)}</td></tr>`).join("")).join("");
@@ -328,8 +331,14 @@ async function openDay(date){
     <p style="font-size:12px;color:#9aa4b8;margin:0 0 8px;">Upload a finished EOD report PDF and its load tickets fill the box below for review — or paste one load per line: <b>Filler, Color, Block, Qty/Bundle, Bundles</b> (optional 6th field = Note). Imports to <b>${esc(date)}</b> on this project. No photos needed — use for days that weren't logged in the field.</p>
     <input type="file" id="deScanInput" accept="application/pdf" class="hide" />
     <button class="btn btn-ghost" id="deScanBtn" style="margin-bottom:10px;">⬆ Scan report PDF</button>
+    <label style="display:block;font-size:12px;color:#9aa4b8;margin:0 0 4px;">Destination block <span style="color:#6f7891;">— loads without a block are filed here (must match a BOM block, e.g. PCS 3.6)</span></label>
+    <input type="text" id="deBlock" list="deBlockList" value="${esc(projBlock)}" placeholder="e.g. PCS 3.6" style="margin-bottom:10px;" />
+    <datalist id="deBlockList"></datalist>
     <textarea id="deImport" placeholder="Ethan Ray, BLACK, PCS 3.6, 16, 2&#10;Cristian Hanson, GREEN, PCS 3.6, 16, 3"></textarea>
-    <button class="btn btn-primary" id="deImportBtn" style="margin-top:10px;">Import to ${esc(date)}</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+      <button class="btn btn-primary" id="deImportBtn">Import to ${esc(date)}</button>
+      <button class="btn btn-ghost" id="deSetBlockBtn">Apply destination to this day's blockless loads</button>
+    </div>
   </div>`;
 
   let eq=(ex.equipment&&ex.equipment.length)?ex.equipment.slice():[{type:"",count:""}];
@@ -380,8 +389,8 @@ async function openDay(date){
     try{
       const rows=await scanReportPdf(file);
       if(!rows.length){toast("Couldn't find a load-ticket table in that PDF.",true);return;}
-      const ta=$("deImport");
-      const lines=rows.map(r=>[r.filler,r.color,r.block,r.qtyPerBundle,r.bundlesPerLoad].join(", "));
+      const ta=$("deImport"); const defBlock=$("deBlock").value.trim();
+      const lines=rows.map(r=>[r.filler,r.color,r.block||defBlock,r.qtyPerBundle,r.bundlesPerLoad].join(", "));
       ta.value=(ta.value.trim()?ta.value.trim()+"\n":"")+lines.join("\n");
       toast(`Found ${rows.length} load${rows.length!==1?"s":""} — review below, then Import`);
     }catch(err){ toast("Couldn't read that PDF.",true); }
@@ -389,17 +398,29 @@ async function openDay(date){
   };
   $("deImportBtn").onclick=async()=>{
     const raw=$("deImport").value.trim(); if(!raw){toast("Paste rows first.",true);return;}
+    const defBlock=$("deBlock").value.trim();
     const rows=raw.split(/\r?\n+/).map(line=>{
       const p=line.split(/\t|,/).map(s=>s.trim());
       if(p.length<5||!p[1]||!p[3]||!p[4])return null;
-      return {filler:p[0],color:p[1].toUpperCase(),block:p[2],qtyPerBundle:p[3],bundlesPerLoad:p[4],note:p[5]||""};
+      return {filler:p[0],color:p[1].toUpperCase(),block:p[2]||defBlock,qtyPerBundle:p[3],bundlesPerLoad:p[4],note:p[5]||""};
     }).filter(Boolean);
     if(!rows.length){toast("Couldn't parse any rows (need Filler, Color, Block, Qty, Bundles).",true);return;}
     const btn=$("deImportBtn");btn.disabled=true;btn.textContent="Importing…";
-    const r=await api(ENTRIES,{action:"import",date,projectId:curProject,rows});
+    const r=await api(ENTRIES,{action:"import",date,projectId:curProject,block:defBlock,rows});
     btn.disabled=false;btn.textContent="Import to "+date;
     if(r&&r.ok){toast(`Imported ${r.created} load${r.created!==1?"s":""} ✓`);$("deImport").value="";openDay(date);}
   };
+  $("deSetBlockBtn").onclick=async()=>{
+    const block=$("deBlock").value.trim();
+    if(!block){toast("Enter a destination block first.",true);return;}
+    const btn=$("deSetBlockBtn");btn.disabled=true;btn.textContent="Applying…";
+    const r=await api(ENTRIES,{action:"setBlock",projectId:curProject,date,block});
+    btn.disabled=false;btn.textContent="Apply destination to this day's blockless loads";
+    if(r&&r.ok){toast(`Set destination on ${r.updated} load${r.updated!==1?"s":""} ✓`);openDay(date);}
+  };
+  // Best-effort: fill the destination datalist with the linked BOM's blocks.
+  (async()=>{ try{ if(!projBomKey)return; const bd=await loadBomJson(projBomKey);
+    $("deBlockList").innerHTML=(bd.blocksOrder||[]).map(b=>`<option value="${esc(b)}"></option>`).join(""); }catch(e){} })();
   $("deUpload").onclick=()=>$("deUploadInput").click();
   $("deUploadInput").onchange=async(e)=>{
     const file=e.target.files[0]; if(!file)return;
