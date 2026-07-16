@@ -418,9 +418,15 @@ async function openDay(date){
     btn.disabled=false;btn.textContent="Apply destination to this day's blockless loads";
     if(r&&r.ok){toast(`Set destination on ${r.updated} load${r.updated!==1?"s":""} ✓`);openDay(date);}
   };
-  // Best-effort: fill the destination datalist with the linked BOM's blocks.
+  // Best-effort: fill the destination datalist with the linked BOM's blocks, and
+  // upgrade the prefill to the canonical BOM name (e.g. "3.6" -> "PCS 3.6") so
+  // future backfills store a block that matches the BOM exactly.
   (async()=>{ try{ if(!projBomKey)return; const bd=await loadBomJson(projBomKey);
-    $("deBlockList").innerHTML=(bd.blocksOrder||[]).map(b=>`<option value="${esc(b)}"></option>`).join(""); }catch(e){} })();
+    const blocks=bd.blocksOrder||[];
+    $("deBlockList").innerHTML=blocks.map(b=>`<option value="${esc(b)}"></option>`).join("");
+    const inp=$("deBlock"); const canon=blocks.find(b=>normBlock(b)===normBlock(inp.value));
+    if(canon && inp.value!==canon) inp.value=canon;
+  }catch(e){} })();
   $("deUpload").onclick=()=>$("deUploadInput").click();
   $("deUploadInput").onchange=async(e)=>{
     const file=e.target.files[0]; if(!file)return;
@@ -607,10 +613,13 @@ function initBom(){
 }
 async function persistBomKey(proj, key){ if(proj && key && proj.bomKey!==key){ proj.bomKey=key; await api(PROJECTS,{action:"update",projectId:proj.id,bomKey:key}); } }
 
-function deliveredMap(entries){ // {block:{color:pieces}}
+// Normalize a block/destination name so variants attribute to the same BOM
+// block: "PCS 3.6", "3.6", "pcs 3.6", "Block 3.6" all -> "3.6".
+const normBlock=(s)=>String(s||"").toUpperCase().replace(/\bPCS\b/g,"").replace(/\bBLOCK\b/g,"").replace(/[^0-9A-Z.]/g,"").trim();
+function deliveredMap(entries){ // {normBlock:{color:pieces}}
   const m={};
   entries.forEach(en=>loadItems(en).forEach(it=>{
-    const b=it.block||"", c=(it.color||"").toUpperCase(); const p=(Number(it.qtyPerBundle)||0)*(Number(it.bundlesPerLoad)||0);
+    const b=normBlock(it.block), c=(it.color||"").toUpperCase(); const p=(Number(it.qtyPerBundle)||0)*(Number(it.bundlesPerLoad)||0);
     m[b]=m[b]||{}; m[b][c]=(m[b][c]||0)+p;
   }));
   return m;
@@ -638,7 +647,7 @@ async function renderBom(){
   let need=0,del=0;
   const rows=bomData.blocksOrder.map(b=>{
     const bneed=bomData.rows.reduce((n,r)=>n+(r.blocks[b]||0),0);
-    const bdel=Object.values(dm[b]||{}).reduce((n,v)=>n+v,0);
+    const bdel=Object.values(dm[normBlock(b)]||{}).reduce((n,v)=>n+v,0);
     need+=bneed; del+=bdel;
     const rem=bneed-bdel, pct=bneed>0?Math.round(bdel/bneed*100):0;
     return `<tr class="click" data-block="${esc(b)}"><td class="col">${esc(b)}</td>
@@ -660,7 +669,7 @@ async function renderBom(){
 }
 
 function renderBomBlock(dm){
-  const body=$("bomBody"), b=bomBlock, del=dm[b]||{};
+  const body=$("bomBody"), b=bomBlock, del=dm[normBlock(b)]||{};
   const rows=bomData.rows.map(r=>{ const need=r.blocks[b]||0; const d=del[(r.color||"").toUpperCase()]||0;
     if(need===0 && d===0) return "";
     const rem=need-d, pct=need>0?Math.round(d/need*100):(d>0?100:0);
@@ -688,7 +697,7 @@ function renderBomBlock(dm){
 async function exportBomXlsx(dm){
   try{ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
     const aoa=[["Block","Color","Type","Description","Needed","Delivered","Remaining","% Complete"]];
-    bomData.blocksOrder.forEach(b=>{ const del=dm[b]||{};
+    bomData.blocksOrder.forEach(b=>{ const del=dm[normBlock(b)]||{};
       bomData.rows.forEach(r=>{ const need=r.blocks[b]||0; const d=del[(r.color||"").toUpperCase()]||0; if(need===0&&d===0)return;
         aoa.push([b,r.color,r.postType||"",r.description||"",need,d,need-d,need>0?Math.round(d/need*100)+"%":""]); }); });
     const ws=XLSX.utils.aoa_to_sheet(aoa); ws["!cols"]=[{wch:9},{wch:20},{wch:22},{wch:40},{wch:9},{wch:10},{wch:10},{wch:11}];
