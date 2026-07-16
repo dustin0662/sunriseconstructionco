@@ -325,7 +325,9 @@ async function openDay(date){
   </div>
   <div class="card">
     <h2>Import Loads (backfill)</h2>
-    <p style="font-size:12px;color:#9aa4b8;margin:0 0 8px;">Paste one load per line: <b>Filler, Color, Block, Qty/Bundle, Bundles</b> (optional 6th field = Note). Imports to <b>${esc(date)}</b> on this project. No photos needed — use for days that weren't logged in the field.</p>
+    <p style="font-size:12px;color:#9aa4b8;margin:0 0 8px;">Upload a finished EOD report PDF and its load tickets fill the box below for review — or paste one load per line: <b>Filler, Color, Block, Qty/Bundle, Bundles</b> (optional 6th field = Note). Imports to <b>${esc(date)}</b> on this project. No photos needed — use for days that weren't logged in the field.</p>
+    <input type="file" id="deScanInput" accept="application/pdf" class="hide" />
+    <button class="btn btn-ghost" id="deScanBtn" style="margin-bottom:10px;">⬆ Scan report PDF</button>
     <textarea id="deImport" placeholder="Ethan Ray, BLACK, PCS 3.6, 16, 2&#10;Cristian Hanson, GREEN, PCS 3.6, 16, 3"></textarea>
     <button class="btn btn-primary" id="deImportBtn" style="margin-top:10px;">Import to ${esc(date)}</button>
   </div>`;
@@ -369,6 +371,21 @@ async function openDay(date){
     btn.disabled=false;
     if(r&&r.ok){ toast(`Report issued to client ✓ (${r.sizeMB} MB)`); openDay(date); }
     else btn.textContent=data.issued?"Re-generate & Issue":"Generate & Issue to Client";
+  };
+  $("deScanBtn").onclick=()=>$("deScanInput").click();
+  $("deScanInput").onchange=async(e)=>{
+    const file=e.target.files[0]; e.target.value=""; if(!file)return;
+    if(file.type!=="application/pdf"){toast("Please choose a PDF.",true);return;}
+    const btn=$("deScanBtn"); btn.disabled=true; btn.textContent="Scanning…";
+    try{
+      const rows=await scanReportPdf(file);
+      if(!rows.length){toast("Couldn't find a load-ticket table in that PDF.",true);return;}
+      const ta=$("deImport");
+      const lines=rows.map(r=>[r.filler,r.color,r.block,r.qtyPerBundle,r.bundlesPerLoad].join(", "));
+      ta.value=(ta.value.trim()?ta.value.trim()+"\n":"")+lines.join("\n");
+      toast(`Found ${rows.length} load${rows.length!==1?"s":""} — review below, then Import`);
+    }catch(err){ toast("Couldn't read that PDF.",true); }
+    finally{ btn.disabled=false; btn.textContent="⬆ Scan report PDF"; }
   };
   $("deImportBtn").onclick=async()=>{
     const raw=$("deImport").value.trim(); if(!raw){toast("Paste rows first.",true);return;}
@@ -419,6 +436,96 @@ function renderLoads(){
   el.querySelectorAll("[data-full]").forEach(img=>img.onclick=()=>window.open(img.src,"_blank"));
 }
 const _sc={}; function loadScript(src){if(_sc[src])return _sc[src];_sc[src]=new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("load"));document.head.appendChild(s);});return _sc[src];}
+
+// pdf.js (lazy) — same CDN/version the repo already uses in site_map.
+const PDFJS_VER="3.11.174";
+async function ensurePdfJs(){
+  if(window.pdfjsLib)return window.pdfjsLib;
+  await loadScript(`https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.min.js`);
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc=`https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.worker.min.js`;
+  return window.pdfjsLib;
+}
+
+// Scan a finished EOD report PDF and pull its load tickets out of the
+// "SECTION 1 — MATERIALS / LOAD TICKETS" table. That table's header row is the
+// only one carrying BOTH "Report ID" and "Filed By", so we anchor on it (the
+// per-ticket detail tables have neither) and bucket each row's text into the
+// header's column x-bands — robust to multi-word names/colors and to reports
+// with or without a Block column. Returns [{filler,color,block,qtyPerBundle,bundlesPerLoad}].
+async function scanReportPdf(file){
+  const pdfjs=await ensurePdfJs();
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjs.getDocument({data:buf}).promise;
+  const norm=(s)=>String(s||"").replace(/\s+/g," ").trim();
+  const out=[];
+  for(let pn=1;pn<=pdf.numPages;pn++){
+    const page=await pdf.getPage(pn);
+    const tc=await page.getTextContent();
+    // group text items into lines by y (transform[5]); x = transform[4]
+    const items=tc.items.filter(it=>norm(it.str)!=="").map(it=>({s:it.str,x:it.transform[4],y:it.transform[5]}));
+    const lines=[];
+    items.forEach(it=>{
+      let ln=lines.find(l=>Math.abs(l.y-it.y)<3.2);
+      if(!ln){ln={y:it.y,items:[]};lines.push(ln);}
+      ln.items.push(it);
+    });
+    lines.forEach(l=>l.items.sort((a,b)=>a.x-b.x));
+    lines.sort((a,b)=>b.y-a.y); // top → bottom
+    // find the Section-1 header on this page
+    let hi=-1;
+    for(let i=0;i<lines.length;i++){
+      const t=norm(lines[i].items.map(it=>it.s).join(" ")).toLowerCase();
+      if(t.includes("report id")&&t.includes("filed by")){hi=i;break;}
+    }
+    if(hi<0)continue;
+    // build column bands from header cell x-starts, keyed by role
+    const hcells=lines[hi].items; // already x-sorted
+    const cols=[]; // {role,x}
+    const roleOf=(txt)=>{const t=txt.toLowerCase();
+      if(t.includes("report id"))return"id";
+      if(t.includes("filed"))return"filler";
+      if(t.includes("color"))return"color";
+      if(t.includes("block"))return"block";
+      if(t.includes("qty"))return"qty";
+      if(t.includes("bundle"))return"bundles";
+      if(t.includes("piece"))return"pieces";
+      if(t==="#")return"num";
+      return null;};
+    // Group header items into logical cells. An item that already resolves to a
+    // role starts its own column (so a lone "#" never absorbs "Report ID"); only
+    // role-less fragments ("Report"+"ID", "Filed"+"By") merge into the prior cell.
+    let cur=null,prevX=null;
+    hcells.forEach(c=>{
+      const r=roleOf(norm(c.s));
+      if(!cur || r || (prevX!=null && c.x-prevX>40)){cur={s:c.s,x:c.x};cols.push(cur);}
+      else{cur.s+=" "+c.s;}
+      prevX=c.x;
+    });
+    const bands=cols.map(c=>({role:roleOf(norm(c.s)),x:c.x})).filter(b=>b.role);
+    if(!bands.some(b=>b.role==="filler")||!bands.some(b=>b.role==="color"))continue;
+    const bandFor=(x)=>{ // nearest band whose x-start is <= item x (fallback: nearest)
+      let best=bands[0],bd=Infinity;
+      bands.forEach(b=>{const d=Math.abs(x-b.x);if(d<bd){bd=d;best=b;}});
+      return best.role;
+    };
+    // read data rows below the header until the TOTAL row / table end
+    for(let i=hi+1;i<lines.length;i++){
+      const cells={};
+      lines[i].items.forEach(it=>{const r=bandFor(it.x);cells[r]=(cells[r]?cells[r]+" ":"")+it.s;});
+      const joined=norm(Object.values(cells).join(" "));
+      if(/total/i.test(joined))break;                 // reached the totals row
+      const id=norm(cells.id||"");
+      const filler=norm(cells.filler||"");
+      const color=norm(cells.color||"");
+      const qty=norm(cells.qty||"").replace(/[^\d.]/g,"");
+      const bundles=norm(cells.bundles||"").replace(/[^\d.]/g,"");
+      // a real ticket row: has a #ReportID and numeric qty+bundles
+      if(!/^#/.test(id)||!filler||!color||!qty||!bundles)continue;
+      out.push({filler,color:color.toUpperCase(),block:norm(cells.block||""),qtyPerBundle:qty,bundlesPerLoad:bundles});
+    }
+  }
+  return out;
+}
 function downloadBlob(b,n){const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=n;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);}
 $("xlsxBtn").onclick=async()=>{ if(!ALL.length){toast("No loads.",true);return;} const b=$("xlsxBtn");b.disabled=true;const o=b.textContent;b.textContent="…";
   try{ await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
