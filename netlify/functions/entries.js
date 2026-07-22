@@ -29,6 +29,14 @@ export default async (req) => {
 
   if (req.method === "GET") {
     const url = new URL(req.url);
+    // Admin: list the "Deleted" folder (archived loads) instead of active ones.
+    if (url.searchParams.get("archived") != null) {
+      if ((url.searchParams.get("admin") || "") !== ADMIN) return json({ error: "unauthorized" }, 401);
+      const { blobs } = await s.list({ prefix: "archived/" });
+      let items = (await Promise.all(blobs.map((b) => s.get(b.key, { type: "json" })))).filter(Boolean);
+      items.sort((a, b) => ((a.archivedAt || a.createdAt) < (b.archivedAt || b.createdAt) ? 1 : -1));
+      return json(items);
+    }
     const wantProject = url.searchParams.get("project"); // optional filter
     const wantDate = url.searchParams.get("date");        // optional YYYY-MM-DD (local? uses ISO date prefix)
     const { blobs } = await s.list({ prefix: "entries/" });
@@ -100,6 +108,49 @@ export default async (req) => {
         if (changed) { await s.setJSON(b.key, e); updated++; }
       }
       return json({ ok: true, updated, projectId: body.projectId, date: body.date, block });
+    }
+
+    // Admin delete → move the load to the "Deleted" folder (archived/ prefix).
+    // Every consumer lists entries/, so this removes it from the feed, daily
+    // reports, and BOM totals at once. The photo blob is kept for restore.
+    if (body.action === "archive") {
+      if ((body.admin || "") !== ADMIN) return json({ error: "unauthorized" }, 401);
+      const id = String(body.id || ""), createdAt = String(body.createdAt || "");
+      if (!id || !createdAt) return json({ error: "id and createdAt required" }, 400);
+      const key = `entries/${createdAt}-${id}`;
+      const e = await s.get(key, { type: "json" }).catch(() => null);
+      if (!e) return json({ error: "not found" }, 404);
+      e.archivedAt = new Date().toISOString();
+      await s.setJSON(`archived/${createdAt}-${id}`, e);
+      await s.delete(key);
+      return json({ ok: true, archived: id });
+    }
+
+    // Admin restore → move an archived load back to the active set.
+    if (body.action === "restore") {
+      if ((body.admin || "") !== ADMIN) return json({ error: "unauthorized" }, 401);
+      const id = String(body.id || ""), createdAt = String(body.createdAt || "");
+      if (!id || !createdAt) return json({ error: "id and createdAt required" }, 400);
+      const key = `archived/${createdAt}-${id}`;
+      const e = await s.get(key, { type: "json" }).catch(() => null);
+      if (!e) return json({ error: "not found" }, 404);
+      delete e.archivedAt;
+      await s.setJSON(`entries/${createdAt}-${id}`, e);
+      await s.delete(key);
+      return json({ ok: true, restored: id });
+    }
+
+    // Admin permanent delete → remove the archived load and its photo for good.
+    if (body.action === "delete") {
+      if ((body.admin || "") !== ADMIN) return json({ error: "unauthorized" }, 401);
+      const id = String(body.id || ""), createdAt = String(body.createdAt || "");
+      if (!id || !createdAt) return json({ error: "id and createdAt required" }, 400);
+      const key = `archived/${createdAt}-${id}`;
+      const e = await s.get(key, { type: "json" }).catch(() => null);
+      if (!e) return json({ error: "not found" }, 404);
+      if (e.photoKey) { try { await s.delete(e.photoKey); } catch {} }
+      await s.delete(key);
+      return json({ ok: true, deleted: id });
     }
 
     // A load carries one or more color line-items. Accept the items array;
