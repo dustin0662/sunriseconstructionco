@@ -53,6 +53,9 @@
   .entry{background:var(--ink2);border:1px solid var(--line);border-radius:12px;padding:13px;margin-bottom:12px;display:grid;grid-template-columns:80px 1fr auto;gap:12px;align-items:start;}
   .entry .thumb{width:80px;height:80px;border-radius:9px;object-fit:cover;background:#0c0c18;border:1px solid var(--line);cursor:pointer;}
   .entry .who{font-weight:700;color:#fff;font-size:14px;} .entry .ts{font-size:11px;color:#8f98ac;}
+  .loadnote{margin-top:7px;font-size:12px;font-style:italic;color:#c9d1e0;line-height:1.35;}
+  .loadactions{display:flex;flex-direction:column;gap:6px;align-items:stretch;}
+  .btn-danger{color:#ff8080;border-color:rgba(255,107,107,.4);} .btn-danger:hover{background:rgba(255,107,107,.12);}
   table.mini{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px;}
   table.mini th{text-align:left;color:#8f98ac;font-weight:600;font-size:10px;text-transform:uppercase;padding:2px 8px 2px 0;}
   table.mini td{padding:2px 8px 2px 0;border-top:1px solid rgba(255,255,255,.05);} table.mini td.c{color:var(--orange);font-weight:700;}
@@ -160,6 +163,7 @@
           <button class="btn btn-ghost" id="xlsxBtn">⬇ Excel</button>
           <button class="btn btn-ghost" id="zipBtn">⬇ Photos ZIP</button>
           <button class="btn btn-primary" id="pdfAllBtn">🧾 All (PDF)</button>
+          <button class="btn btn-ghost" id="archToggle" style="margin-left:auto;">🗄 Deleted</button>
         </div>
         <div id="list"><div class="empty">Loading…</div></div>
       </div>
@@ -211,7 +215,7 @@ document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
   if(v==="bom") initBom();
 });
 
-let PROJ=[], ACTIVE="", ALL=[];
+let PROJ=[], ACTIVE="", ALL=[], showArch=false;
 let calY, calM, curProject="", daySet={issued:[],loadDays:[]}, selDate="";
 
 async function boot(){ const now=new Date(); calY=now.getFullYear(); calM=now.getMonth(); await loadProjects(); }
@@ -440,27 +444,57 @@ async function openDay(date){
 
 async function loadAllLoads(){
   $("count").textContent="Loading…";
-  try{ const r=await fetch(ENTRIES); ALL=await r.json(); renderLoads(); }
+  try{
+    const url=showArch?ENTRIES+"?archived=1&admin="+encodeURIComponent(ADMIN_PASSCODE):ENTRIES;
+    const r=await fetch(url); ALL=await r.json(); if(!Array.isArray(ALL))ALL=[]; renderLoads();
+  }
   catch(e){ $("count").textContent="Failed."; toast("Couldn't load loads.",true); }
 }
 $("refreshBtn").onclick=loadAllLoads;
+$("archToggle").onclick=()=>{ showArch=!showArch; $("archToggle").classList.toggle("btn-primary",showArch); $("archToggle").classList.toggle("btn-ghost",!showArch); $("archToggle").textContent=showArch?"↩ Active loads":"🗄 Deleted"; loadAllLoads(); };
 function fileStamp(){return new Date().toISOString().slice(0,16).replace(/[:T]/g,"-");}
 function photoFileName(en){const d=new Date(en.createdAt);const ds=isNaN(d)?"":d.toISOString().slice(0,10);const who=(en.filler||"").replace(/[^a-z0-9]+/gi,"-").slice(0,20);return(ds?ds+"_":"")+en.id+(who?"_"+who:"")+".jpg";}
 function renderLoads(){
   const tc=ALL.reduce((n,en)=>n+loadItems(en).length,0);
-  $("count").textContent=ALL.length+" loads · "+tc+" color lines";
-  const el=$("list"); if(!ALL.length){el.innerHTML='<div class="empty">No loads yet.</div>';return;}
+  $("count").textContent=(showArch?"Deleted: ":"")+ALL.length+" loads · "+tc+" color lines";
+  const el=$("list"); if(!ALL.length){el.innerHTML=`<div class="empty">${showArch?"Nothing in the Deleted folder.":"No loads yet."}</div>`;return;}
   el.innerHTML=ALL.map(en=>{const li=loadItems(en);
     const rows=li.map(it=>`<tr><td class="c">${esc(it.color)}</td><td>${esc(it.block)}</td><td>${esc(it.qtyPerBundle)}</td><td>${esc(it.bundlesPerLoad)}</td></tr>`).join("");
     const cnt=li.length>1?`<span class="badge badge-count">${li.length} colors</span>`:"";
     const proj=en.projectName?`<span class="badge badge-count">${esc(en.projectName)}</span>`:"";
+    const note=en.notes?`<div class="loadnote">📝 ${esc(en.notes)}</div>`:"";
+    const actions=showArch
+      ? `<button class="btn btn-ghost btn-sm" data-restore="${esc(en.id)}">↩ Restore</button>
+         <button class="btn btn-ghost btn-sm btn-danger" data-del="${esc(en.id)}">🗑 Delete forever</button>`
+      : `<button class="btn btn-ghost btn-sm" data-pdf="${esc(en.id)}">🧾 PDF</button>
+         <button class="btn btn-ghost btn-sm btn-danger" data-arch="${esc(en.id)}">🗑 Delete</button>`;
     return `<div class="entry"><img class="thumb" src="${PHOTO}?key=${encodeURIComponent(en.photoKey||"")}" loading="lazy" data-full="${esc(en.id)}"/>
       <div><div class="who">${esc(en.filler)} ${cnt} ${proj}</div><div class="ts">${esc(fmtTime(en.createdAt))} · #${esc(en.id)}</div>
-      <table class="mini"><thead><tr><th>Color</th><th>Block</th><th>Qty/Bnd</th><th>Bnd/Load</th></tr></thead><tbody>${rows}</tbody></table></div>
-      <div><button class="btn btn-ghost btn-sm" data-pdf="${esc(en.id)}">🧾 PDF</button></div></div>`;
+      <table class="mini"><thead><tr><th>Color</th><th>Block</th><th>Qty/Bnd</th><th>Bnd/Load</th></tr></thead><tbody>${rows}</tbody></table>${note}</div>
+      <div class="loadactions">${actions}</div></div>`;
   }).join("");
   el.querySelectorAll("[data-pdf]").forEach(b=>b.onclick=()=>{const en=ALL.find(x=>x.id===b.dataset.pdf);if(en)exportLoadsPDF([en]);});
   el.querySelectorAll("[data-full]").forEach(img=>img.onclick=()=>window.open(img.src,"_blank"));
+  el.querySelectorAll("[data-arch]").forEach(b=>b.onclick=async()=>{
+    const en=ALL.find(x=>x.id===b.dataset.arch); if(!en)return;
+    if(!confirm(`Delete this load by ${en.filler||""} (#${en.id})?\n\nIt moves to the Deleted folder and is removed from reports and BOM totals — you can restore it or delete it permanently there. To update a report you've already issued to the client, re-issue that day after deleting.`))return;
+    b.disabled=true;
+    const r=await api(ENTRIES,{action:"archive",id:en.id,createdAt:en.createdAt});
+    if(r&&r.ok){ ALL=ALL.filter(x=>x.id!==en.id); renderLoads(); toast("Moved to Deleted ✓"); } else b.disabled=false;
+  });
+  el.querySelectorAll("[data-restore]").forEach(b=>b.onclick=async()=>{
+    const en=ALL.find(x=>x.id===b.dataset.restore); if(!en)return;
+    b.disabled=true;
+    const r=await api(ENTRIES,{action:"restore",id:en.id,createdAt:en.createdAt});
+    if(r&&r.ok){ ALL=ALL.filter(x=>x.id!==en.id); renderLoads(); toast("Load restored ✓"); } else b.disabled=false;
+  });
+  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
+    const en=ALL.find(x=>x.id===b.dataset.del); if(!en)return;
+    if(!confirm(`Permanently delete this load by ${en.filler||""} (#${en.id})?\n\nThis cannot be undone.`))return;
+    b.disabled=true;
+    const r=await api(ENTRIES,{action:"delete",id:en.id,createdAt:en.createdAt});
+    if(r&&r.ok){ ALL=ALL.filter(x=>x.id!==en.id); renderLoads(); toast("Deleted permanently ✓"); } else b.disabled=false;
+  });
 }
 const _sc={}; function loadScript(src){if(_sc[src])return _sc[src];_sc[src]=new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("load"));document.head.appendChild(s);});return _sc[src];}
 
