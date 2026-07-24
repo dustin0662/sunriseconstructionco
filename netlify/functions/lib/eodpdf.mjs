@@ -237,7 +237,7 @@ export async function buildEodPdf(data) {
       const p = newPage("summary");
       let y = LETTER[1] - 72;
       if (first) { T(p, M, y, "SECTION 1 — MATERIALS / LOAD TICKETS", { font: bold, size: 13 }); y -= 14;
-        T(p, M, y, `${tickets.length} load ticket${tickets.length !== 1 ? "s" : ""}. Full signed tickets on the following pages.`, { font, size: 9.5, color: GRAY }); y -= 12; }
+        T(p, M, y, tickets.length ? `${tickets.length} load ticket${tickets.length !== 1 ? "s" : ""}. Full signed tickets on the following pages.` : "No load tickets were recorded for this day.", { font, size: 9.5, color: GRAY }); y -= 12; }
       const rowsThisPage = Math.max(1, Math.floor((y - 110) / 22)); // dynamic — never overflow the page
       const slice = tickets.slice(idx, idx + rowsThisPage);
       const rows = slice.map((t, i) => [String(idx + i + 1), "#" + t.loadId, t.filedBy, titleCase(t.color), t.block, String(t.qtyPerBundle), String(t.bundlesPerLoad), String(t.pieces)]);
