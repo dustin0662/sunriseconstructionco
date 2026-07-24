@@ -54,6 +54,7 @@
   .entry .thumb{width:80px;height:80px;border-radius:9px;object-fit:cover;background:#0c0c18;border:1px solid var(--line);cursor:pointer;}
   .entry .who{font-weight:700;color:#fff;font-size:14px;} .entry .ts{font-size:11px;color:#8f98ac;}
   .loadnote{margin-top:7px;font-size:12px;font-style:italic;color:#c9d1e0;line-height:1.35;}
+  table.mini tr.ticketnote td{color:#c9d1e0;font-style:italic;font-size:11px;padding:3px 8px 6px 0;border-top:none;}
   .loadactions{display:flex;flex-direction:column;gap:6px;align-items:stretch;}
   .btn-danger{color:#ff8080;border-color:rgba(255,107,107,.4);} .btn-danger:hover{background:rgba(255,107,107,.12);}
   table.mini{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px;}
@@ -292,8 +293,12 @@ async function openDay(date){
   const projBlock=_proj.block||"";
   const projBomKey=_proj.bomKey||(BOM_MANIFEST[0]?BOM_MANIFEST[0].key:"");
   const dateLabel=new Date(date+"T12:00:00").toLocaleDateString([],{weekday:"long",month:"long",day:"numeric",year:"numeric"});
-  const ticketRows=(data.loads||[]).map(ld=>loadItems(ld).map(it=>
-    `<tr><td>#${esc(ld.id)}</td><td>${esc(ld.filler||"")}</td><td class="c">${esc(it.color)}</td><td>${esc(it.block)}</td><td>${esc(it.qtyPerBundle)}</td><td>${esc(it.bundlesPerLoad)}</td><td>${(Number(it.qtyPerBundle)||0)*(Number(it.bundlesPerLoad)||0)}</td></tr>`).join("")).join("");
+  const ticketRows=(data.loads||[]).map(ld=>{
+    const itemRows=loadItems(ld).map(it=>
+      `<tr><td>#${esc(ld.id)}</td><td>${esc(ld.filler||"")}</td><td class="c">${esc(it.color)}</td><td>${esc(it.block)}</td><td>${esc(it.qtyPerBundle)}</td><td>${esc(it.bundlesPerLoad)}</td><td>${(Number(it.qtyPerBundle)||0)*(Number(it.bundlesPerLoad)||0)}</td></tr>`).join("");
+    const noteRow=ld.notes?`<tr class="ticketnote"><td colspan="7">📝 ${esc(ld.notes)}</td></tr>`:"";
+    return itemRows+noteRow;
+  }).join("");
   const dayBlocks=[...new Set((data.loads||[]).flatMap(ld=>loadItems(ld).map(it=>it.block)).filter(Boolean))];
   const issuedBadge=data.issued?`<span class="badge badge-issued">Issued ${esc(fmtTime(data.issuedAt))}</span>`:`<span class="badge badge-pending">Not issued</span>`;
   box.innerHTML=`<div class="card">
