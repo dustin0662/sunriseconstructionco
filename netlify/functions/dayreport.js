@@ -102,8 +102,9 @@ export default async (req) => {
     if (body.action === "issue") {
       const proj = await s.get(`projects/${projectId}`, { type: "json" }).catch(() => null);
       if (!proj) return json({ error: "project not found" }, 404);
+      // Loads are optional — a day with only safety/equipment/notes (e.g. a
+      // shakeout or stand-down day) can still be issued as a report.
       const loads = await loadsFor(s, projectId, date);
-      if (!loads.length) return json({ error: "No loads for this day." }, 400);
 
       // Fetch photos (parallel) + decode signatures.
       const withMedia = await Promise.all(loads.map(async (ld) => {
