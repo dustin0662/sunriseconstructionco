@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#0a0a14" />
+<title>Pile Remediation Marker | Sun Rise Construction</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --orange:#F97316; --green:#21b321; --mark-orange:#ff8c00;
+    --ink:#0a0a14; --ink2:#10101e; --ink3:#171728; --cream:#F5F0EB; --line:#2a2a3a;
+    --muted:#9aa4b8;
+    --d:'Bebas Neue','Arial Narrow',sans-serif;
+    --b:'DM Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    font-family:var(--b);background:var(--ink);color:var(--cream);
+    line-height:1.4;display:flex;flex-direction:column;overflow:hidden;
+  }
+  header.top{
+    flex:none;display:flex;align-items:center;gap:12px;
+    background:rgba(10,10,20,.96);border-bottom:1px solid var(--line);
+    padding:calc(10px + env(safe-area-inset-top)) 14px 10px;
+  }
+  header.top h1{font-family:var(--d);font-weight:400;font-size:24px;letter-spacing:.04em;margin:0;line-height:1;color:#fff;}
+  header.top .sub{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--orange);}
+  header.top .spacer{flex:1;}
+  .btn{
+    font-family:var(--b);font-size:13px;font-weight:600;cursor:pointer;
+    background:var(--ink3);color:var(--cream);border:1px solid var(--line);
+    border-radius:8px;padding:9px 13px;min-height:38px;display:inline-flex;
+    align-items:center;gap:7px;white-space:nowrap;
+  }
+  .btn:hover:not(:disabled){border-color:#4a4a60;background:#1e1e34;}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .btn.primary{background:var(--orange);border-color:var(--orange);color:#fff;}
+  .btn.primary:hover:not(:disabled){background:#e86a10;border-color:#e86a10;}
+  .btn.sm{font-size:12px;padding:6px 10px;min-height:32px;}
+
+  main{flex:1;display:flex;min-height:0;}
+  #stage{flex:1;position:relative;background:#e9e9ef;min-width:0;overflow:hidden;}
+  #stage canvas{position:absolute;inset:0;display:block;touch-action:none;cursor:crosshair;}
+  #drop{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:14px;background:var(--ink);text-align:center;padding:24px;
+  }
+  #drop.hide{display:none;}
+  #drop .dz{
+    border:2px dashed var(--line);border-radius:14px;padding:38px 34px;max-width:520px;
+    background:var(--ink2);
+  }
+  #drop.over .dz{border-color:var(--orange);background:#191926;}
+  #drop h2{font-family:var(--d);font-size:26px;font-weight:400;letter-spacing:.03em;margin:0 0 8px;color:#fff;}
+  #drop p{color:var(--muted);font-size:13.5px;margin:0 0 18px;}
+  #hud{
+    position:absolute;left:10px;bottom:10px;background:rgba(10,10,20,.88);
+    border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;
+    color:var(--cream);pointer-events:none;font-variant-numeric:tabular-nums;
+  }
+  #zoombar{position:absolute;right:10px;bottom:10px;display:flex;gap:6px;}
+  #zoombar .btn{background:rgba(10,10,20,.88);}
+  #busy{
+    position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(10,10,20,.72);color:var(--cream);font-size:14px;z-index:5;
+  }
+  #busy.on{display:flex;}
+
+  aside{
+    flex:none;width:392px;max-width:46vw;background:var(--ink2);border-left:1px solid var(--line);
+    display:flex;flex-direction:column;min-height:0;
+  }
+  .panel{padding:12px 14px;border-bottom:1px solid var(--line);flex:none;}
+  .panel h3{
+    font-family:var(--d);font-weight:400;font-size:16px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--muted);margin:0 0 10px;
+  }
+  .keyrow{
+    display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;
+    border:1px solid var(--line);background:var(--ink3);margin-bottom:7px;cursor:pointer;
+    user-select:none;
+  }
+  .keyrow:last-child{margin-bottom:0;}
+  .keyrow.active{border-color:var(--orange);background:#1e1e34;}
+  .keyrow .swatch{width:20px;height:20px;border-radius:50%;flex:none;border:3px solid;}
+  .keyrow .lbl{flex:1;font-size:13.5px;font-weight:600;}
+  .keyrow .cnt{font-family:var(--d);font-size:22px;line-height:1;color:#fff;font-variant-numeric:tabular-nums;}
+  .keyrow .hint{font-size:11px;color:var(--muted);font-weight:400;display:block;}
+  .totals{display:flex;justify-content:space-between;align-items:baseline;margin-top:9px;font-size:12.5px;color:var(--muted);}
+  .totals b{font-family:var(--d);font-size:20px;color:#fff;font-weight:400;}
+
+  .listwrap{flex:1;min-height:0;display:flex;flex-direction:column;}
+  .listhead{display:flex;align-items:center;gap:8px;padding:10px 14px 8px;}
+  .listhead h3{margin:0;flex:1;}
+  #filter{
+    width:100%;background:var(--ink3);border:1px solid var(--line);border-radius:8px;
+    color:var(--cream);font-family:var(--b);font-size:13px;padding:8px 10px;margin:0 14px 8px;
+    width:calc(100% - 28px);
+  }
+  #filter::placeholder{color:#6b7280;}
+  #rows{flex:1;overflow-y:auto;padding:0 14px 14px;}
+  .prow{
+    display:grid;grid-template-columns:14px 1fr auto;gap:8px;align-items:center;
+    padding:7px 8px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;
+    background:var(--ink3);font-size:12.5px;
+  }
+  .prow.hl{border-color:var(--orange);}
+  .prow .dot{width:12px;height:12px;border-radius:50%;border:2.5px solid;}
+  .prow .meta{min-width:0;}
+  .prow .idline{font-weight:700;color:#fff;font-size:13px;}
+  .prow .idline .warn{color:#f4b942;cursor:help;}
+  .prow .subline{color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .prow input.len{
+    width:62px;background:var(--ink2);border:1px solid var(--line);border-radius:6px;
+    color:var(--cream);font-family:var(--b);font-size:12px;padding:4px 6px;text-align:right;
+  }
+  .prow .x{
+    background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;
+    line-height:1;padding:4px 6px;
+  }
+  .prow .x:hover{color:#ff6b6b;}
+  .prow .cell{display:flex;align-items:center;gap:4px;}
+  .empty{color:var(--muted);font-size:13px;text-align:center;padding:26px 10px;}
+  .foot{padding:12px 14px calc(12px + env(safe-area-inset-bottom));display:flex;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line);}
+  .note{font-size:11.5px;color:var(--muted);margin:8px 14px 0;}
+  #toast{
+    position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:50;
+    background:var(--ink3);border:1px solid var(--line);border-left:4px solid var(--orange);
+    border-radius:9px;padding:11px 15px;font-size:13px;max-width:min(560px,92vw);
+    box-shadow:0 8px 30px rgba(0,0,0,.5);display:none;
+  }
+  #toast.on{display:block;}
+  #toast.bad{border-left-color:#ff6b6b;}
+  @media (max-width:900px){
+    main{flex-direction:column;}
+    aside{width:100%;max-width:none;border-left:none;border-top:1px solid var(--line);max-height:47vh;}
+    #stage{min-height:44vh;}
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>Pile Remediation Marker</h1>
+    <div class="sub">Sun Rise Construction</div>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn sm" id="btnOpen">Open PDF</button>
+  <button class="btn sm" id="btnCsv" disabled>Export CSV</button>
+  <button class="btn primary sm" id="btnPdf" disabled>Export PDF</button>
+  <input type="file" id="file" accept="application/pdf,.pdf" hidden />
+</header>
+
+<main>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="hud">—</div>
+    <div id="zoombar">
+      <button class="btn sm" id="zOut" title="Zoom out">&minus;</button>
+      <button class="btn sm" id="zIn" title="Zoom in">+</button>
+      <button class="btn sm" id="zFit" title="Fit page">Fit</button>
+    </div>
+    <div id="busy">Working…</div>
+    <div id="drop">
+      <div class="dz">
+        <h2>Load the pile tracker PDF</h2>
+        <p>Drop the Nottingham Pile Remediation Tracker here, or choose the file.
+           The map is read straight out of the PDF — every pile, row and reveal code —
+           along with any circles already marked on it.</p>
+        <button class="btn primary" id="btnChoose">Choose PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="panel">
+      <h3>Key</h3>
+      <div class="keyrow" data-mode="green">
+        <span class="swatch" style="border-color:var(--green)"></span>
+        <span class="lbl">Pull Test &amp; Cut<span class="hint">click a pile to mark green</span></span>
+        <span class="cnt" id="cntGreen">0</span>
+      </div>
+      <div class="keyrow" data-mode="orange">
+        <span class="swatch" style="border-color:var(--mark-orange)"></span>
+        <span class="lbl">Extract &amp; Re-Drive<span class="hint">click a pile to mark orange</span></span>
+        <span class="cnt" id="cntOrange">0</span>
+      </div>
+      <div class="keyrow" data-mode="erase">
+        <span class="swatch" style="border-color:#6b7280"></span>
+        <span class="lbl">Erase<span class="hint">click a marked pile, or shift-click in any mode</span></span>
+      </div>
+      <div class="totals"><span>Total marked</span><b id="tot2">0</b></div>
+    </div>
+
+    <div class="listwrap">
+      <div class="listhead"><h3>Pile ID list</h3>
+        <button class="btn sm" id="btnClear" disabled>Clear all</button>
+        <button class="btn sm" id="btnReset" disabled title="Restore the markings that came with the PDF">Reset</button>
+      </div>
+      <input id="filter" placeholder="Filter by pile ID, row, reveal…" />
+      <div id="rows"><div class="empty">No piles marked yet.</div></div>
+    </div>
+  </aside>
+</main>
+
+<div id="toast"></div>
+
+<script src="/assets/pdf.min.js"></script>
+<script src="/assets/pdf-lib.min.js"></script>
+
+<!-- ===================================================================
+     Core logic. Pure functions only (no DOM) so it can be exercised
+     head-less by tools/test-pile-tracker.cjs against the source PDF.
+     =================================================================== -->
+<script id="pile-core">
+var PileCore = (function () {
+  "use strict";
+
+  var MARKS = {
+    green:  { key: "green",  label: "Pull Test & Cut",    rgb: [0.13, 0.7, 0.13], css: "#21b321" },
+    orange: { key: "orange", label: "Extract & Re-Drive", rgb: [1, 0.55, 0],      css: "#ff8c00" }
+  };
+  var ACTION_TO_MARK = {};
+  Object.keys(MARKS).forEach(function (k) { ACTION_TO_MARK[MARKS[k].label.toLowerCase()] = k; });
+
+  var LETTER_RE  = /^[A-Z]$/;
+  var ROW_RE     = /^ROW\s+(\d+)$/;
+  var REVEAL_RE  = /^\d+(\.\d+)?E?-?(MS|ND|DR|RE)$/;
+  var PILEID_RE  = /^R\d+-[A-Z]+$/;
+
+  // Circle geometry used on the map, taken from the source document.
+  var MARK_RADIUS = 15.5, MARK_WIDTH = 3.2;
+
+  function median(a) {
+    if (!a.length) return 0;
+    var s = a.slice().sort(function (x, y) { return x - y; });
+    return s[Math.floor(s.length / 2)];
+  }
+  function modeOf(a) {
+    var m = {}, best = null, bestN = 0;
+    a.forEach(function (v) {
+      var k = v.toFixed(2); m[k] = (m[k] || 0) + 1;
+      if (m[k] > bestN) { bestN = m[k]; best = v; }
+    });
+    return best;
+  }
+  // pdf.js reports `height` as the glyph em size. A capital letter's visual
+  // centre sits ~0.35em above its baseline, which is where the pile dot is.
+  function capMid(item) { return item.transform[5] + item.height * 0.35; }
+  function itemX(item)  { return item.transform[4]; }
+  function itemMidX(item) { return item.transform[4] + item.width / 2; }
+  function txt(item) { return (item.str || "").replace(/\s+/g, " ").trim(); }
+
+  function nextLetter(pos) {
+    // Pile IDs follow the exhibit-list convention: one position east of the
+    // letter printed on the map.
+    var i = pos.length - 1, out = pos.split("");
+    while (i >= 0) {
+      if (out[i] !== "Z") { out[i] = String.fromCharCode(out[i].charCodeAt(0) + 1); return out.join(""); }
+      out[i] = "A"; i--;
+    }
+    return "A" + out.join("");
+  }
+  function derivePileId(row, pos) { return "R" + row + "-" + nextLetter(pos); }
+  function pileKey(row, pos) { return row + "|" + pos; }
+
+  /**
+   * Rebuild the pile grid from page 1's text layer.
+   * Every pile on the map carries a position letter (A, B, C…) drawn just west
+   * of its dot, a reveal code drawn just below it, and every row of piles ends
+   * in a "ROW n" label sitting on the same vertical line as its dots.
+   */
+  function buildGrid(items) {
+    var i, letters = [], rowLabels = [], reveals = [];
+    for (i = 0; i < items.length; i++) {
+      var s = txt(items[i]);
+      if (!s) continue;
+      var m = ROW_RE.exec(s);
+      if (m) { rowLabels.push({ n: +m[1], x: itemX(items[i]), y: items[i].transform[5] }); continue; }
+      if (LETTER_RE.test(s)) { letters.push(items[i]); continue; }
+      if (REVEAL_RE.test(s)) { reveals.push(items[i]); }
+    }
+    if (!rowLabels.length || !letters.length) {
+      throw new Error("This PDF does not look like the pile map: no ROW labels or position letters were found on page 1.");
+    }
+
+    // Position letters are drawn at one size; drop anything else that is a
+    // lone capital (legend text, axis labels…).
+    var letterSize = modeOf(letters.map(function (it) { return it.height; }));
+    letters = letters.filter(function (it) { return Math.abs(it.height - letterSize) < 0.25; });
+
+    // Row lines are the x of each "ROW n" label; a letter's dot sits a fixed
+    // distance east of the letter, on one of those lines.
+    var lineXs = [];
+    rowLabels.forEach(function (r) {
+      for (var j = 0; j < lineXs.length; j++) if (Math.abs(lineXs[j] - r.x) < 1) return;
+      lineXs.push(r.x);
+    });
+    lineXs.sort(function (a, b) { return a - b; });
+    function nearestLine(x) {
+      var best = lineXs[0], bd = Math.abs(lineXs[0] - x);
+      for (var j = 1; j < lineXs.length; j++) {
+        var d = Math.abs(lineXs[j] - x);
+        if (d < bd) { bd = d; best = lineXs[j]; }
+      }
+      return best;
+    }
+    var xoff = median(letters.map(function (it) { return nearestLine(itemMidX(it) + 12) - itemMidX(it); }));
+
+    var piles = [];
+    letters.forEach(function (it) {
+      piles.push({ pos: txt(it), x: nearestLine(itemMidX(it) + xoff), y: capMid(it), rev: "" });
+    });
+
+    // Split each vertical line into runs of consecutive letters starting at A;
+    // each run is one row, named by the nearest "ROW n" label below it.
+    var byLine = {};
+    piles.forEach(function (p) {
+      var k = p.x.toFixed(2);
+      (byLine[k] = byLine[k] || []).push(p);
+    });
+    var problems = [];
+    Object.keys(byLine).forEach(function (k) {
+      var col = byLine[k].sort(function (a, b) { return b.y - a.y; }); // top → bottom
+      var run = null;
+      col.forEach(function (p) {
+        if (p.pos === "A") { run = [p]; p.run = run; }
+        else if (run && nextLetter(run[run.length - 1].pos) === p.pos) { run.push(p); p.run = run; }
+        else { problems.push(p.pos + " at " + k); run = null; }
+      });
+    });
+    var runs = [];
+    piles.forEach(function (p) { if (p.run && runs.indexOf(p.run) < 0) runs.push(p.run); });
+
+    var usedLabel = {};
+    runs.forEach(function (run) {
+      var lx = run[0].x, bottom = run[run.length - 1].y, best = null, bd = Infinity;
+      rowLabels.forEach(function (r, idx) {
+        if (usedLabel[idx] || Math.abs(r.x - lx) > 1) return;
+        var d = bottom - r.y;                    // label sits below its row
+        if (d > 0 && d < bd) { bd = d; best = idx; }
+      });
+      if (best === null) { problems.push("row with no ROW label near x=" + lx.toFixed(1)); return; }
+      usedLabel[best] = true;
+      var n = rowLabels[best].n;
+      run.forEach(function (p) { p.row = n; });
+    });
+
+    piles = piles.filter(function (p) { return p.row != null; });
+    piles.forEach(function (p) { delete p.run; p.id = derivePileId(p.row, p.pos); p.key = pileKey(p.row, p.pos); });
+
+    // Reveal codes: normally centred 22pt below their dot; the last pile of a
+    // row has its code nudged aside, so anything left over is matched to the
+    // closest still-unlabelled dot.
+    var taken = {}, leftovers = [];
+    function index(p) { return p.row + "/" + p.pos; }
+    reveals.forEach(function (it) {
+      var cx = itemMidX(it), cy = capMid(it), hit = null;
+      for (var j = 0; j < piles.length; j++) {
+        var p = piles[j], dy = p.y - cy;
+        if (Math.abs(p.x - cx) < 6 && dy > 14 && dy < 30 && !taken[index(p)]) { hit = p; break; }
+      }
+      if (hit) { taken[index(hit)] = true; hit.rev = txt(it); }
+      else leftovers.push(it);
+    });
+    leftovers.forEach(function (it) {
+      var cx = itemMidX(it), cy = capMid(it), best = null, bd = Infinity;
+      piles.forEach(function (p) {
+        if (taken[index(p)]) return;
+        var d = (p.x - cx) * (p.x - cx) + (p.y - 22 - cy) * (p.y - 22 - cy);
+        if (d < bd) { bd = d; best = p; }
+      });
+      if (best) { taken[index(best)] = true; best.rev = txt(it); }
+    });
+
+    var byKey = {};
+    piles.forEach(function (p) { byKey[p.key] = p; });
+    return { piles: piles, byKey: byKey, problems: problems, rowCount: runs.length };
+  }
+
+  /**
+   * Read one page of an existing pile ID list back into records. Cells are
+   * grouped by baseline, split at each pile ID, and then identified by their
+   * content, so a missing length (or a re-ordered column) is not fatal.
+   */
+  function parseListPage(items) {
+    var lines = {}, i;
+    for (i = 0; i < items.length; i++) {
+      var s = txt(items[i]);
+      if (!s) continue;
+      var k = Math.round(items[i].transform[5] * 2) / 2;
+      (lines[k] = lines[k] || []).push({ x: itemX(items[i]), s: s });
+    }
+    var out = [];
+    Object.keys(lines).forEach(function (k) {
+      var cells = lines[k].sort(function (a, b) { return a.x - b.x; });
+      var starts = [];
+      cells.forEach(function (c, idx) { if (PILEID_RE.test(c.s)) starts.push(idx); });
+      starts.forEach(function (st, n) {
+        var rec = cells.slice(st, n + 1 < starts.length ? starts[n + 1] : cells.length);
+        var id = rec[0].s, rest = rec.slice(1).map(function (c) { return c.s; });
+        var action = null, row = null, pos = null, rev = null, spare = [];
+        rest.forEach(function (v) {
+          if (action === null && ACTION_TO_MARK[v.toLowerCase()]) action = v;
+          else if (row === null && /^\d+$/.test(v)) row = +v;
+          else if (pos === null && LETTER_RE.test(v)) pos = v;
+          else if (rev === null && REVEAL_RE.test(v)) rev = v;
+          else spare.push(v);
+        });
+        if (action === null || row === null || pos === null) return;
+        out.push({
+          id: id, row: row, pos: pos, rev: rev || "",
+          mark: ACTION_TO_MARK[action.toLowerCase()], len: spare.length ? spare[0] : ""
+        });
+      });
+    });
+    return out;
+  }
+
+  /** Reuse the explanatory half of the list page's footnote, if it has one. */
+  function readFootnote(items) {
+    var low = items.filter(function (it) { return it.transform[5] < 60 && txt(it); })
+      .sort(function (a, b) { return b.transform[5] - a.transform[5] || itemX(a) - itemX(b); })
+      .map(txt).join(" ");
+    var cut = /\bGreen\s*=/.exec(low);
+    var prefix = (cut ? low.slice(0, cut.index) : low).trim();
+    return prefix.length > 20 ? prefix : "";
+  }
+
+  /**
+   * Pull the title / subtitle wording out of a sheet so exports keep it.
+   * Both sit on known baselines inside the sheet's title block; pdf.js splits
+   * a line wherever the spacing is wide, so each line is stitched back up.
+   */
+  function readHeadings(items, titleY, subY, tol) {
+    tol = tol || 6;
+    function lineAt(y) {
+      var on = items.filter(function (it) {
+        return Math.abs(it.transform[5] - y) <= tol && txt(it);
+      }).sort(function (a, b) { return itemX(a) - itemX(b); });
+      var out = "", prevEnd = null;
+      on.forEach(function (it) {
+        if (prevEnd !== null) out += (itemX(it) - prevEnd > 2 ? "   " : "");
+        out += txt(it);
+        prevEnd = itemX(it) + it.width;
+      });
+      return out;
+    }
+    return { title: lineAt(titleY), subtitle: lineAt(subY) };
+  }
+
+  /**
+   * Rewrite the counts inside a subtitle, keeping the project wording intact.
+   * "PCS 3.6 · CO 002 · 57 piles: 33 Pull Test & Cut (green) · 24 …"
+   */
+  function retitle(subtitle, counts, style) {
+    var g = counts.green, o = counts.orange, t = g + o;
+    if (style === "map") {
+      var body = t + " piles: " + g + " " + MARKS.green.label + " (green) · " +
+        o + " " + MARKS.orange.label + " (orange)";
+      if (!subtitle) return body;
+      if (/\d+\s+piles?\s*:/.test(subtitle)) {
+        return subtitle.replace(/\d+\s+piles?\s*:[\s\S]*?(?=\s*(?:\||$))/, body);
+      }
+      return subtitle;
+    }
+    if (!subtitle) return t + " remediation piles";
+    if (/\d+\s+remediation\s+piles?/.test(subtitle)) {
+      return subtitle.replace(/\d+\s+remediation\s+piles?/, t + " remediation piles");
+    }
+    if (/\d+\s+piles?/.test(subtitle)) return subtitle.replace(/\d+\s+piles?/, t + " piles");
+    return subtitle;
+  }
+
+  function toCsv(marks) {
+    var head = ["Pile ID", "Row", "Map Pos", "Reveal", "Action", "Length"];
+    var rows = [head].concat(marks.map(function (m) {
+      return [m.id, String(m.row), m.pos, m.rev, MARKS[m.mark].label, m.len || ""];
+    }));
+    return rows.map(function (r) {
+      return r.map(function (c) {
+        return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c;
+      }).join(",");
+    }).join("\r\n") + "\r\n";
+  }
+
+  /** Marked piles in map order: row, then position down the row. */
+  function sortMarks(marks) {
+    return marks.slice().sort(function (a, b) {
+      if (a.row !== b.row) return a.row - b.row;
+      return a.pos < b.pos ? -1 : a.pos > b.pos ? 1 : 0;
+    });
+  }
+
+  function counts(marks) {
+    var c = { green: 0, orange: 0 };
+    marks.forEach(function (m) { if (c[m.mark] != null) c[m.mark]++; });
+    return c;
+  }
+
+  return {
+    MARKS: MARKS, MARK_RADIUS: MARK_RADIUS, MARK_WIDTH: MARK_WIDTH,
+    buildGrid: buildGrid, parseListPage: parseListPage, readHeadings: readHeadings,
+    readFootnote: readFootnote,
+    retitle: retitle, derivePileId: derivePileId, nextLetter: nextLetter,
+    pileKey: pileKey, toCsv: toCsv, sortMarks: sortMarks, counts: counts
+  };
+})();
+</script>
+
+<!-- ===================================================================
+     Export. The tracker is built as a pristine base map (a single form
+     XObject) with an annotation layer appended after it as extra content
+     streams, so a full-resolution vector export is a matter of keeping the
+     base, dropping the old annotation layer and drawing a new one. Nothing
+     is rasterised.
+     =================================================================== -->
+<script id="pile-export">
+var PileExport = (function () {
+  "use strict";
+
+  var C = PileCore;
+
+  // Page 1 annotation layer, measured from the source document. Everything is
+  // anchored to the top of the sheet so it lands correctly on any page height.
+  var MAP = {
+    barInset: 30, barTop: 116, barH: 98, barBorder: 1.5,
+    titleBaseline: 56.875, titleSize: 25,
+    subBaseline: 93.801, subSize: 25,
+    boxX: 200, boxTop: 450, boxW: 950, boxH: 580, boxBorder: 2.5,
+    headBaseline: 518.32, headSize: 42,
+    keyX: 310, keyR: 52, keyW: 9, keyLabelX: 400, keyLabelSize: 40,
+    key1: 660, key2: 850,
+    footBaseline: 967.95, footSize: 26
+  };
+
+  // Page 2 (the pile ID list), measured the same way.
+  var LIST = {
+    w: 792, h: 612,
+    marginX: 30.66667, colW: 350, colGap: 30.66667,
+    titleBaseline: 569.95, titleSize: 15,
+    subBaseline: 547.7875, subSize: 9.5,
+    headTop: 526, headH: 17, headBaseline: 514, headSize: 8,
+    rowTop: 509, rowH: 15.2, rowsPerCol: 29,
+    textDy: 4.2, dotDx: 13, dotDy: 7.6, dotR: 3.8, dotW: 1.6,
+    bodySize: 7.6,
+    cols: { id: 22, row: 69, pos: 101, rev: 149, action: 211, len: 309 },
+    headCols: { id: 3, row: 69, pos: 101, rev: 149, action: 211, len: 309 },
+    footBaselines: [47.815, 36.294, 24.773], footSize: 7.8, footLead: 11.52
+  };
+
+  var FOOT_DEFAULT = '"Map Pos" = position letter printed on the pile map (page 1). ' +
+    "Pile IDs follow the exhibit list convention (offset one position east); " +
+    "both are given so this list cross-references either document.";
+
+  // pdf-lib's standard fonts are WinAnsi; drop anything that cannot be encoded.
+  function safe(s) {
+    return String(s == null ? "" : s)
+      .replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+      .replace(/[^\x20-\xFF–—•…]/g, "");
+  }
+
+  /**
+   * Keep only the content streams that make up the base map, dropping the
+   * appended annotation layer. The base is everything up to and including the
+   * last stream that paints a form XObject.
+   */
+  function baseContents(doc, page, PDFLib) {
+    var contents = page.node.get(PDFLib.PDFName.of("Contents"));
+    if (!(contents instanceof PDFLib.PDFArray)) return { refs: null, stripped: 0 };
+    var refs = [], i;
+    for (i = 0; i < contents.size(); i++) refs.push(contents.get(i));
+    var lastDo = -1;
+    for (i = 0; i < refs.length; i++) {
+      var stream = doc.context.lookup(refs[i]);
+      if (!(stream instanceof PDFLib.PDFRawStream)) continue;
+      var bytes;
+      try { bytes = PDFLib.decodePDFRawStream(stream).decode(); } catch (e) { continue; }
+      var text = "", j;
+      for (j = 0; j < bytes.length; j++) text += String.fromCharCode(bytes[j]);
+      if (/(^|[\s>\]])\/[^\s/]+\s+Do\b/.test(text)) lastDo = i;
+    }
+    if (lastDo < 0) return { refs: null, stripped: 0 };
+    return { refs: refs.slice(0, lastDo + 1), stripped: refs.length - lastDo - 1 };
+  }
+
+  function drawList(page, fonts, marks, headings, counts, footPrefix, pageNo, pageCount, PDFLib) {
+    var L = LIST, rgb = PDFLib.rgb;
+    var ink = rgb(0.1, 0.1, 0.1), grey = rgb(0.3, 0.3, 0.3);
+
+    var title = safe(headings.title || "PILE REMEDIATION TRACKER");
+    var sub = safe(C.retitle(headings.subtitle, counts, "list"));
+    if (pageCount > 1) title += " (" + pageNo + "/" + pageCount + ")";
+    page.drawText(title, {
+      x: (L.w - fonts.bold.widthOfTextAtSize(title, L.titleSize)) / 2,
+      y: L.titleBaseline, size: L.titleSize, font: fonts.bold, color: ink
+    });
+    if (sub) page.drawText(sub, {
+      x: (L.w - fonts.reg.widthOfTextAtSize(sub, L.subSize)) / 2,
+      y: L.subBaseline, size: L.subSize, font: fonts.reg, color: grey
+    });
+
+    var colXs = [L.marginX, L.marginX + L.colW + L.colGap];
+    var head = { id: "Pile ID", row: "Row", pos: "Map Pos", rev: "Reveal", action: "Action", len: "Length" };
+
+    marks.forEach(function (m, i) {
+      var col = Math.floor(i / L.rowsPerCol), idx = i % L.rowsPerCol, x0 = colXs[col];
+      if (idx === 0) {
+        page.drawRectangle({
+          x: x0, y: L.headTop - L.headH, width: L.colW, height: L.headH,
+          color: rgb(0.9, 0.9, 0.9), borderColor: ink, borderWidth: 0.8
+        });
+        Object.keys(head).forEach(function (k) {
+          page.drawText(head[k], {
+            x: x0 + L.headCols[k], y: L.headBaseline, size: L.headSize, font: fonts.bold, color: ink
+          });
+        });
+      }
+      var y = L.rowTop - (idx + 1) * L.rowH;
+      page.drawRectangle({
+        x: x0, y: y, width: L.colW, height: L.rowH,
+        borderColor: rgb(0.75, 0.75, 0.75), borderWidth: 0.4
+      });
+      var mk = C.MARKS[m.mark];
+      page.drawCircle({
+        x: x0 + L.dotDx, y: y + L.dotDy, size: L.dotR,
+        borderColor: rgb(mk.rgb[0], mk.rgb[1], mk.rgb[2]), borderWidth: L.dotW
+      });
+      var cells = {
+        id: m.id, row: String(m.row), pos: m.pos, rev: m.rev,
+        action: mk.label, len: m.len || ""
+      };
+      Object.keys(cells).forEach(function (k) {
+        if (!cells[k]) return;
+        page.drawText(safe(cells[k]), {
+          x: x0 + L.cols[k], y: y + L.textDy, size: L.bodySize, font: fonts.reg, color: ink
+        });
+      });
+    });
+
+    if (pageNo !== pageCount) return;
+    var foot = footPrefix + " Green = " + C.MARKS.green.label + " (" + counts.green + ")" +
+      " · Orange = " + C.MARKS.orange.label + " (" + counts.orange + ").";
+    if (counts.mismatched) {
+      foot += " " + counts.mismatched + (counts.mismatched === 1
+        ? " listed reveal code differs" : " listed reveal codes differ") + " from the map - field-verify.";
+    }
+    var maxW = L.w - 2 * L.marginX, words = safe(foot).split(" "), line = "", lines = [];
+    words.forEach(function (w) {
+      var t = line ? line + " " + w : w;
+      if (fonts.reg.widthOfTextAtSize(t, L.footSize) > maxW && line) { lines.push(line); line = w; }
+      else line = t;
+    });
+    if (line) lines.push(line);
+    lines.forEach(function (t, i) {
+      var y = i < L.footBaselines.length
+        ? L.footBaselines[i]
+        : L.footBaselines[L.footBaselines.length - 1] - (i - L.footBaselines.length + 1) * L.footLead;
+      page.drawText(t, { x: L.marginX, y: y, size: L.footSize, font: fonts.reg, color: grey });
+    });
+  }
+
+  /**
+   * @param opts.srcBytes  the tracker PDF as loaded
+   * @param opts.marks     marked piles, each with row/pos/x/y/rev/mark/id/len
+   * @param opts.headings  {map:{title,subtitle}, list:{title,subtitle}, footPrefix}
+   * @param opts.PDFLib    the pdf-lib module
+   */
+  async function exportPdf(opts) {
+    var PDFLib = opts.PDFLib, rgb = PDFLib.rgb;
+    var doc = await PDFLib.PDFDocument.load(opts.srcBytes);
+    var fonts = {
+      reg: await doc.embedFont(PDFLib.StandardFonts.Helvetica),
+      bold: await doc.embedFont(PDFLib.StandardFonts.HelveticaBold)
+    };
+    var marks = C.sortMarks(opts.marks);
+    var counts = C.counts(marks);
+    counts.mismatched = marks.filter(function (m) { return m.revMismatch; }).length;
+
+    // ---- page 1: base map + fresh annotation layer -------------------------
+    var page = doc.getPage(0);
+    var base = baseContents(doc, page, PDFLib);
+    if (!base.refs) throw new Error("Could not isolate the base map layer in this PDF.");
+    page.node.set(PDFLib.PDFName.of("Contents"), doc.context.obj(base.refs));
+
+    var pw = page.getWidth(), ph = page.getHeight(), M = MAP;
+    marks.forEach(function (m) {
+      var c = C.MARKS[m.mark].rgb;
+      page.drawCircle({
+        x: m.x, y: m.y, size: C.MARK_RADIUS,
+        borderColor: rgb(c[0], c[1], c[2]), borderWidth: C.MARK_WIDTH
+      });
+    });
+
+    page.drawRectangle({
+      x: M.barInset, y: ph - M.barTop, width: pw - 2 * M.barInset, height: M.barH,
+      color: rgb(1, 1, 1), borderColor: rgb(0.1, 0.1, 0.1), borderWidth: M.barBorder
+    });
+    var mapTitle = safe(opts.headings.map.title || "PILE REMEDIATION TRACKER");
+    var mapSub = safe(C.retitle(opts.headings.map.subtitle, counts, "map"));
+    page.drawText(mapTitle, {
+      x: (pw - fonts.bold.widthOfTextAtSize(mapTitle, M.titleSize)) / 2,
+      y: ph - M.titleBaseline, size: M.titleSize, font: fonts.bold, color: rgb(0.1, 0.1, 0.1)
+    });
+    if (mapSub) page.drawText(mapSub, {
+      x: (pw - fonts.reg.widthOfTextAtSize(mapSub, M.subSize)) / 2,
+      y: ph - M.subBaseline, size: M.subSize, font: fonts.reg, color: rgb(0.1, 0.1, 0.1)
+    });
+
+    page.drawRectangle({
+      x: M.boxX, y: ph - M.boxTop - M.boxH, width: M.boxW, height: M.boxH,
+      color: rgb(1, 1, 1), borderColor: rgb(0.1, 0.1, 0.1), borderWidth: M.boxBorder
+    });
+    page.drawText("REMEDIATION MARKERS", {
+      x: M.boxX + 30, y: ph - M.headBaseline, size: M.headSize, font: fonts.bold, color: rgb(0.1, 0.1, 0.1)
+    });
+    [["green", M.key1], ["orange", M.key2]].forEach(function (pair) {
+      var mk = C.MARKS[pair[0]], y = ph - pair[1];
+      page.drawCircle({
+        x: M.keyX, y: y, size: M.keyR,
+        borderColor: rgb(mk.rgb[0], mk.rgb[1], mk.rgb[2]), borderWidth: M.keyW
+      });
+      page.drawText(mk.label + "   (" + counts[pair[0]] + ")", {
+        x: M.keyLabelX, y: y - 1, size: M.keyLabelSize, font: fonts.reg, color: rgb(0.1, 0.1, 0.1)
+      });
+    });
+    page.drawText("Ring circles the affected pile · " + marks.length +
+      " total · see page 2 for pile list", {
+      x: M.boxX + 30, y: ph - M.footBaseline, size: M.footSize, font: fonts.reg, color: rgb(0.35, 0.35, 0.35)
+    });
+
+    // ---- list pages --------------------------------------------------------
+    while (doc.getPageCount() > 1) doc.removePage(doc.getPageCount() - 1);
+    var perPage = LIST.rowsPerCol * 2;
+    var pageCount = Math.max(1, Math.ceil(marks.length / perPage));
+    var footPrefix = safe(opts.headings.footPrefix || FOOT_DEFAULT);
+    for (var i = 0; i < pageCount; i++) {
+      var p = doc.addPage([LIST.w, LIST.h]);
+      drawList(p, fonts, marks.slice(i * perPage, (i + 1) * perPage),
+        opts.headings.list, counts, footPrefix, i + 1, pageCount, PDFLib);
+    }
+    return await doc.save();
+  }
+
+  /** Strip the annotation layer so the map can be drawn clean on screen. */
+  async function baseMapBytes(srcBytes, PDFLib) {
+    var doc = await PDFLib.PDFDocument.load(srcBytes);
+    var page = doc.getPage(0);
+    var base = baseContents(doc, page, PDFLib);
+    if (!base.refs) return { bytes: srcBytes, stripped: 0, ok: false };
+    page.node.set(PDFLib.PDFName.of("Contents"), doc.context.obj(base.refs));
+    return { bytes: await doc.save(), stripped: base.stripped, ok: true };
+  }
+
+  return { exportPdf: exportPdf, baseMapBytes: baseMapBytes, FOOT_DEFAULT: FOOT_DEFAULT, LIST: LIST, MAP: MAP };
+})();
+</script>
+
+<style>
+  .prow{grid-template-columns:14px 1fr auto auto;}
+  .prow .meta{display:grid;grid-template-columns:80px 1fr;align-items:center;gap:6px;}
+  .prow input.pid{
+    width:74px;background:transparent;border:1px solid transparent;border-radius:6px;
+    color:#fff;font-family:var(--b);font-size:13px;font-weight:700;padding:3px 5px;
+  }
+  .prow input.pid:hover,.prow input.pid:focus{background:var(--ink2);}
+  .prow input.pid:hover,.prow input.pid:focus,.prow input.len:focus{border-color:var(--line);outline:none;}
+  .prow input.pid:focus,.prow input.len:focus{border-color:var(--orange);}
+</style>
+
+<script>
+(function () {
+  "use strict";
+  var C = PileCore, X = PileExport;
+  var pdfjsLib = window["pdfjs-dist/build/pdf"] || window.pdfjsLib;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "/assets/pdf.worker.min.js";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var stage = $("stage"), cv = $("cv"), ctx = cv.getContext("2d");
+  var toastEl = $("toast"), toastTimer = null;
+
+  var S = {
+    fileName: "", srcBytes: null, doc: null, page: null,
+    pageW: 0, pageH: 0, piles: [], byKey: {},
+    marks: {}, original: {}, headings: null, footPrefix: "",
+    mode: "green", filter: "", hover: null, storeKey: ""
+  };
+  var view = { scale: 1, tx: 0, ty: 0 };
+  var overview = null, ovScale = 1;
+  var crisp = null, crispState = null, crispTimer = null, crispTask = null;
+
+  function toast(msg, bad) {
+    toastEl.textContent = msg;
+    toastEl.className = "on" + (bad ? " bad" : "");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.className = ""; }, bad ? 8000 : 4200);
+  }
+  function busy(on, msg) {
+    $("busy").textContent = msg || "Working…";
+    $("busy").className = on ? "on" : "";
+  }
+
+  // ---------------------------------------------------------------- loading
+  function fileKey(f) { return "pileTracker:v1:" + f.name + ":" + f.size; }
+
+  async function loadFile(f) {
+    if (!f) return;
+    busy(true, "Reading " + f.name + "…");
+    try {
+      var buf = new Uint8Array(await f.arrayBuffer());
+      S.srcBytes = buf; S.fileName = f.name; S.storeKey = fileKey(f);
+
+      // Read the document as published, for the grid and the existing marks.
+      var srcDoc = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise;
+      var p1 = await srcDoc.getPage(1);
+      var items1 = (await p1.getTextContent()).items;
+      var grid = C.buildGrid(items1);
+
+      var listPages = [], existing = [];
+      for (var n = 2; n <= srcDoc.numPages; n++) {
+        var pgItems = (await (await srcDoc.getPage(n)).getTextContent()).items;
+        listPages.push(pgItems);
+        existing = existing.concat(C.parseListPage(pgItems));
+      }
+      var listItems = listPages.length ? listPages[0] : items1;
+
+      var srcH = p1.getViewport({ scale: 1 }).height;
+      S.headings = {
+        map: C.readHeadings(items1, srcH - X.MAP.titleBaseline, srcH - X.MAP.subBaseline),
+        list: C.readHeadings(listItems, X.LIST.titleBaseline, X.LIST.subBaseline)
+      };
+      S.footPrefix = C.readFootnote(listPages.length ? listPages[listPages.length - 1] : []) || X.FOOT_DEFAULT;
+
+      S.piles = grid.piles; S.byKey = grid.byKey;
+      S.original = {};
+      existing.forEach(function (r) {
+        var key = C.pileKey(r.row, r.pos);
+        if (!S.byKey[key]) return;
+        S.original[key] = { mark: r.mark, id: r.id, len: r.len, rev: r.rev };
+      });
+      S.marks = restore() || clone(S.original);
+
+      // Redraw the map without its annotation layer so what is on screen is
+      // exactly what the export will produce.
+      var stripped = await X.baseMapBytes(buf.slice(0), PDFLib);
+      S.doc = await pdfjsLib.getDocument({ data: stripped.bytes }).promise;
+      S.page = await S.doc.getPage(1);
+      var vp = S.page.getViewport({ scale: 1 });
+      S.pageW = vp.width; S.pageH = vp.height;
+
+      await buildOverview();
+      $("drop").className = "hide";
+      fit();
+      renderList(); updateCounts(); resize(); hud();
+      $("btnPdf").disabled = $("btnCsv").disabled = $("btnClear").disabled = $("btnReset").disabled = false;
+
+      var msg = grid.piles.length + " piles across " + grid.rowCount + " rows · " +
+        Object.keys(S.original).length + " circles already marked";
+      if (!stripped.ok) msg += " · could not isolate the base map, existing circles stay drawn";
+      if (grid.problems.length) msg += " · " + grid.problems.length + " label(s) unplaced";
+      toast(msg);
+    } catch (e) {
+      console.error(e);
+      toast(e && e.message ? e.message : String(e), true);
+    } finally { busy(false); }
+  }
+
+  function clone(o) {
+    var out = {};
+    Object.keys(o).forEach(function (k) { out[k] = { mark: o[k].mark, id: o[k].id, len: o[k].len, rev: o[k].rev }; });
+    return out;
+  }
+  function persist() {
+    try { localStorage.setItem(S.storeKey, JSON.stringify(S.marks)); } catch (e) { /* quota / private mode */ }
+  }
+  function restore() {
+    try {
+      var raw = localStorage.getItem(S.storeKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+
+  // ---------------------------------------------------------------- drawing
+  async function buildOverview() {
+    var target = 2400;
+    ovScale = Math.min(target / S.pageW, target * 2 / S.pageH, 1);
+    var vp = S.page.getViewport({ scale: ovScale });
+    overview = document.createElement("canvas");
+    overview.width = Math.ceil(vp.width); overview.height = Math.ceil(vp.height);
+    await S.page.render({ canvasContext: overview.getContext("2d"), viewport: vp }).promise;
+  }
+
+  function resize() {
+    var r = stage.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.max(1, Math.round(r.width * dpr));
+    cv.height = Math.max(1, Math.round(r.height * dpr));
+    cv.style.width = r.width + "px"; cv.style.height = r.height + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw(); scheduleCrisp();
+  }
+  function viewSize() { var r = stage.getBoundingClientRect(); return { w: r.width, h: r.height }; }
+
+  function fit() {
+    var v = viewSize();
+    view.scale = Math.min(v.w / S.pageW, v.h / S.pageH) * 0.98;
+    view.tx = (S.pageW - v.w / view.scale) / 2;
+    view.ty = S.pageH + (v.h / view.scale - S.pageH) / 2;
+    draw(); scheduleCrisp();
+  }
+  function toScreen(x, y) { return [(x - view.tx) * view.scale, (view.ty - y) * view.scale]; }
+  function toPdf(sx, sy) { return [sx / view.scale + view.tx, view.ty - sy / view.scale]; }
+
+  function draw() {
+    if (!S.page) return;
+    var v = viewSize();
+    ctx.save();
+    ctx.fillStyle = "#e9e9ef"; ctx.fillRect(0, 0, v.w, v.h);
+    var o = toScreen(0, S.pageH);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(o[0], o[1], S.pageW * view.scale, S.pageH * view.scale);
+    ctx.imageSmoothingQuality = "high";
+    if (overview) ctx.drawImage(overview, o[0], o[1], S.pageW * view.scale, S.pageH * view.scale);
+    if (crisp && crispState && crispState.scale === view.scale) {
+      var c = toScreen(crispState.x, crispState.y);
+      ctx.drawImage(crisp, c[0], c[1], crispState.w * view.scale, crispState.h * view.scale);
+    }
+    drawMarks();
+    ctx.restore();
+  }
+
+  function drawMarks() {
+    var r = C.MARK_RADIUS * view.scale, lw = Math.max(1, C.MARK_WIDTH * view.scale);
+    var v = viewSize();
+    Object.keys(S.marks).forEach(function (key) {
+      var p = S.byKey[key]; if (!p) return;
+      var s = toScreen(p.x, p.y);
+      if (s[0] < -r || s[1] < -r || s[0] > v.w + r || s[1] > v.h + r) return;
+      ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, 6.2832);
+      ctx.strokeStyle = C.MARKS[S.marks[key].mark].css; ctx.lineWidth = lw; ctx.stroke();
+    });
+    if (S.hover) {
+      var h = toScreen(S.hover.x, S.hover.y);
+      ctx.beginPath(); ctx.arc(h[0], h[1], r + lw, 0, 6.2832);
+      ctx.strokeStyle = S.marks[S.hover.key] ? "rgba(255,255,255,.9)" : "rgba(20,20,30,.55)";
+      ctx.lineWidth = Math.max(1, lw * 0.6); ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+
+  function scheduleCrisp() {
+    clearTimeout(crispTimer);
+    crispTimer = setTimeout(renderCrisp, 130);
+  }
+  async function renderCrisp() {
+    if (!S.page) return;
+    var v = viewSize(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var s = view.scale * dpr;
+    if (s <= ovScale * 1.05) { crisp = null; crispState = null; draw(); return; }
+    var pad = 0.15;
+    var x0 = Math.max(0, view.tx - (v.w / view.scale) * pad);
+    var x1 = Math.min(S.pageW, view.tx + (v.w / view.scale) * (1 + pad));
+    var y1 = Math.min(S.pageH, view.ty + (v.h / view.scale) * pad);
+    var y0 = Math.max(0, view.ty - (v.h / view.scale) * (1 + pad));
+    var wpx = Math.ceil((x1 - x0) * s), hpx = Math.ceil((y1 - y0) * s);
+    var maxPx = 12e6;
+    if (wpx * hpx > maxPx) { var k = Math.sqrt(maxPx / (wpx * hpx)); s *= k; wpx = Math.ceil((x1 - x0) * s); hpx = Math.ceil((y1 - y0) * s); }
+    if (wpx < 2 || hpx < 2) return;
+    if (crispTask) { try { crispTask.cancel(); } catch (e) { /* already done */ } }
+    var canvas = document.createElement("canvas");
+    canvas.width = wpx; canvas.height = hpx;
+    var vp = S.page.getViewport({ scale: s });
+    try {
+      crispTask = S.page.render({
+        canvasContext: canvas.getContext("2d"), viewport: vp,
+        transform: [1, 0, 0, 1, -x0 * s, -(S.pageH - y1) * s]
+      });
+      await crispTask.promise;
+    } catch (e) { return; } finally { crispTask = null; }
+    crisp = canvas;
+    crispState = { x: x0, y: y1, w: x1 - x0, h: y1 - y0, scale: view.scale };
+    draw();
+  }
+
+  // ----------------------------------------------------------- interactions
+  function pileAt(sx, sy) {
+    var p = toPdf(sx, sy), best = null, bd = 20 * 20;
+    for (var i = 0; i < S.piles.length; i++) {
+      var q = S.piles[i], d = (q.x - p[0]) * (q.x - p[0]) + (q.y - p[1]) * (q.y - p[1]);
+      if (d < bd) { bd = d; best = q; }
+    }
+    return best;
+  }
+
+  function applyMark(p, mode) {
+    if (!p) return;
+    if (mode === "erase" || (S.marks[p.key] && S.marks[p.key].mark === mode)) delete S.marks[p.key];
+    else {
+      var prev = S.marks[p.key] || S.original[p.key] || {};
+      S.marks[p.key] = {
+        mark: mode,
+        id: prev.id || p.id,
+        len: prev.len || "",
+        rev: prev.rev || p.rev
+      };
+    }
+    persist(); draw(); renderList(); updateCounts(); hud();
+  }
+
+  var drag = null, pointers = {}, pinch = null;
+  cv.addEventListener("pointerdown", function (e) {
+    cv.setPointerCapture(e.pointerId);
+    pointers[e.pointerId] = { x: e.offsetX, y: e.offsetY };
+    var ids = Object.keys(pointers);
+    if (ids.length === 2) {
+      var a = pointers[ids[0]], b = pointers[ids[1]];
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), scale: view.scale, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+      drag = null;
+    } else {
+      drag = { x: e.offsetX, y: e.offsetY, tx: view.tx, ty: view.ty, moved: false };
+    }
+  });
+  cv.addEventListener("pointermove", function (e) {
+    if (pointers[e.pointerId]) { pointers[e.pointerId].x = e.offsetX; pointers[e.pointerId].y = e.offsetY; }
+    var ids = Object.keys(pointers);
+    if (pinch && ids.length === 2) {
+      var a = pointers[ids[0]], b = pointers[ids[1]];
+      var d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinch.d > 4) zoomAt(pinch.cx, pinch.cy, (pinch.scale * d / pinch.d) / view.scale);
+      return;
+    }
+    if (drag) {
+      if (Math.abs(e.offsetX - drag.x) + Math.abs(e.offsetY - drag.y) > 3) drag.moved = true;
+      view.tx = drag.tx - (e.offsetX - drag.x) / view.scale;
+      view.ty = drag.ty + (e.offsetY - drag.y) / view.scale;
+      clamp(); draw(); scheduleCrisp();
+      return;
+    }
+    var h = pileAt(e.offsetX, e.offsetY);
+    if (h !== S.hover) { S.hover = h; draw(); hud(); }
+  });
+  function endPointer(e) {
+    delete pointers[e.pointerId];
+    if (Object.keys(pointers).length < 2) pinch = null;
+    if (drag && !drag.moved) {
+      var p = pileAt(e.offsetX, e.offsetY);
+      if (p) applyMark(p, e.shiftKey || e.button === 2 ? "erase" : S.mode);
+    }
+    drag = null;
+  }
+  cv.addEventListener("pointerup", endPointer);
+  cv.addEventListener("pointercancel", function (e) { delete pointers[e.pointerId]; drag = null; pinch = null; });
+  cv.addEventListener("contextmenu", function (e) {
+    e.preventDefault();
+    var p = pileAt(e.offsetX, e.offsetY);
+    if (p) applyMark(p, "erase");
+  });
+  cv.addEventListener("pointerleave", function () { S.hover = null; draw(); hud(); });
+  cv.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    zoomAt(e.offsetX, e.offsetY, Math.pow(0.999, e.deltaY * (e.deltaMode === 1 ? 16 : 1)));
+  }, { passive: false });
+
+  function zoomAt(sx, sy, k) {
+    if (!S.page) return;
+    var before = toPdf(sx, sy);
+    var v = viewSize();
+    var min = Math.min(v.w / S.pageW, v.h / S.pageH) * 0.4;
+    view.scale = Math.max(min, Math.min(12, view.scale * k));
+    var after = toPdf(sx, sy);
+    view.tx += before[0] - after[0];
+    view.ty += before[1] - after[1];
+    clamp(); draw(); scheduleCrisp(); hud();
+  }
+  function clamp() {
+    var v = viewSize(), wPt = v.w / view.scale, hPt = v.h / view.scale;
+    view.tx = Math.max(-wPt * 0.6, Math.min(S.pageW - wPt * 0.4, view.tx));
+    view.ty = Math.max(hPt * 0.4, Math.min(S.pageH + hPt * 0.6, view.ty));
+  }
+  function centerOn(p) {
+    var v = viewSize();
+    if (view.scale < 1.2) view.scale = 1.6;
+    view.tx = p.x - v.w / view.scale / 2;
+    view.ty = p.y + v.h / view.scale / 2;
+    clamp(); draw(); scheduleCrisp(); hud();
+  }
+
+  function hud() {
+    var el = $("hud");
+    if (!S.page) { el.textContent = "—"; return; }
+    var z = Math.round(view.scale * 100) + "%";
+    if (!S.hover) { el.textContent = z + " · " + S.piles.length + " piles"; return; }
+    var m = S.marks[S.hover.key];
+    el.textContent = z + " · " + (m ? m.id : S.hover.id) + " · Row " + S.hover.row +
+      " · Pos " + S.hover.pos + " · " + (S.hover.rev || "no reveal") +
+      (m ? " · " + C.MARKS[m.mark].label : "");
+  }
+
+  // ----------------------------------------------------------------- panels
+  function markList() {
+    return Object.keys(S.marks).map(function (k) {
+      var p = S.byKey[k], m = S.marks[k];
+      return {
+        key: k, row: p.row, pos: p.pos, x: p.x, y: p.y, mark: m.mark,
+        id: m.id || p.id, len: m.len || "", rev: m.rev || p.rev,
+        mapRev: p.rev, revMismatch: !!(m.rev && p.rev && m.rev !== p.rev)
+      };
+    });
+  }
+
+  function updateCounts() {
+    var c = C.counts(markList());
+    $("cntGreen").textContent = c.green;
+    $("cntOrange").textContent = c.orange;
+    $("tot2").textContent = c.green + c.orange;
+  }
+
+  function renderList() {
+    var host = $("rows"), rows = C.sortMarks(markList());
+    var q = S.filter.trim().toLowerCase();
+    if (q) rows = rows.filter(function (r) {
+      return (r.id + " r" + r.row + " " + r.pos + " " + r.rev + " " + C.MARKS[r.mark].label)
+        .toLowerCase().indexOf(q) >= 0;
+    });
+    host.innerHTML = "";
+    if (!rows.length) {
+      host.innerHTML = '<div class="empty">' +
+        (Object.keys(S.marks).length ? "Nothing matches that filter." : "No piles marked yet.") + "</div>";
+      return;
+    }
+    var frag = document.createDocumentFragment();
+    rows.forEach(function (r) {
+      var el = document.createElement("div");
+      el.className = "prow";
+      el.innerHTML =
+        '<span class="dot" style="border-color:' + C.MARKS[r.mark].css + '"></span>' +
+        '<span class="meta">' +
+          '<span class="idline"><input class="pid" value="" /></span>' +
+          '<span class="subline"></span>' +
+        "</span>" +
+        '<span class="cell"><input class="len" placeholder="len" value="" /></span>' +
+        '<button class="x" title="Remove">×</button>';
+      var pid = el.querySelector(".pid"), len = el.querySelector(".len");
+      pid.value = r.id; len.value = r.len;
+      var sub = "Row " + r.row + " · Pos " + r.pos + " · " + (r.rev || "—") +
+        (r.revMismatch ? "  (map says " + r.mapRev + ")" : "");
+      el.querySelector(".subline").textContent = sub;
+      el.querySelector(".subline").title = sub;
+      pid.addEventListener("change", function () {
+        S.marks[r.key].id = pid.value.trim() || C.derivePileId(r.row, r.pos); persist();
+      });
+      len.addEventListener("change", function () { S.marks[r.key].len = len.value.trim(); persist(); });
+      el.querySelector(".x").addEventListener("click", function () {
+        delete S.marks[r.key]; persist(); draw(); renderList(); updateCounts();
+      });
+      el.addEventListener("mouseenter", function () { S.hover = S.byKey[r.key]; draw(); hud(); });
+      el.addEventListener("click", function (e) {
+        if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
+        centerOn(S.byKey[r.key]);
+      });
+      frag.appendChild(el);
+    });
+    host.appendChild(frag);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll(".keyrow"), function (el) {
+    el.addEventListener("click", function () {
+      S.mode = el.dataset.mode;
+      Array.prototype.forEach.call(document.querySelectorAll(".keyrow"), function (o) {
+        o.classList.toggle("active", o === el);
+      });
+    });
+    if (el.dataset.mode === "green") el.classList.add("active");
+  });
+
+  $("filter").addEventListener("input", function (e) { S.filter = e.target.value; renderList(); });
+  $("btnClear").addEventListener("click", function () {
+    if (!Object.keys(S.marks).length) return;
+    if (!confirm("Remove all " + Object.keys(S.marks).length + " circles?")) return;
+    S.marks = {}; persist(); draw(); renderList(); updateCounts();
+  });
+  $("btnReset").addEventListener("click", function () {
+    if (!confirm("Restore the circles that came with the PDF?")) return;
+    S.marks = clone(S.original); persist(); draw(); renderList(); updateCounts();
+    toast("Restored " + Object.keys(S.marks).length + " circles from the PDF.");
+  });
+  $("zIn").addEventListener("click", function () { var v = viewSize(); zoomAt(v.w / 2, v.h / 2, 1.4); });
+  $("zOut").addEventListener("click", function () { var v = viewSize(); zoomAt(v.w / 2, v.h / 2, 1 / 1.4); });
+  $("zFit").addEventListener("click", function () { fit(); hud(); });
+
+  // ---------------------------------------------------------------- exports
+  function download(bytes, name, type) {
+    var url = URL.createObjectURL(new Blob([bytes], { type: type }));
+    var a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+  function baseName() { return S.fileName.replace(/\.pdf$/i, "") || "pile-tracker"; }
+
+  $("btnPdf").addEventListener("click", async function () {
+    busy(true, "Building PDF…");
+    try {
+      var bytes = await X.exportPdf({
+        srcBytes: S.srcBytes.slice(0), marks: markList(),
+        headings: { map: S.headings.map, list: S.headings.list, footPrefix: S.footPrefix },
+        PDFLib: PDFLib
+      });
+      download(bytes, baseName() + "-marked.pdf", "application/pdf");
+      var c = C.counts(markList());
+      toast("Exported " + (c.green + c.orange) + " circles — " + c.green + " green, " + c.orange + " orange.");
+    } catch (e) {
+      console.error(e);
+      toast("Export failed: " + (e && e.message ? e.message : e), true);
+    } finally { busy(false); }
+  });
+  $("btnCsv").addEventListener("click", function () {
+    download(C.toCsv(C.sortMarks(markList())), baseName() + "-piles.csv", "text/csv");
+  });
+
+  // ------------------------------------------------------------------- wire
+  $("btnOpen").addEventListener("click", function () { $("file").click(); });
+  $("btnChoose").addEventListener("click", function () { $("file").click(); });
+  $("file").addEventListener("change", function (e) { loadFile(e.target.files[0]); e.target.value = ""; });
+  ["dragenter", "dragover"].forEach(function (t) {
+    document.addEventListener(t, function (e) { e.preventDefault(); $("drop").classList.add("over"); });
+  });
+  ["dragleave", "drop"].forEach(function (t) {
+    document.addEventListener(t, function (e) { e.preventDefault(); $("drop").classList.remove("over"); });
+  });
+  document.addEventListener("drop", function (e) {
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    var map = { g: "green", o: "orange", e: "erase" };
+    if (map[e.key.toLowerCase()]) {
+      var el = document.querySelector('.keyrow[data-mode="' + map[e.key.toLowerCase()] + '"]');
+      if (el) el.click();
+    } else if (e.key === "0") { fit(); hud(); }
+  });
+  window.addEventListener("resize", resize);
+  resize();
+})();
+</script>
+</body>
+</html>

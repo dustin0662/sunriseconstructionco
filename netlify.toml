@@ -23,6 +23,16 @@
   status = 200
 
 [[redirects]]
+  from = "/piles"
+  to = "/pile-tracker.html"
+  status = 200
+
+[[redirects]]
+  from = "/pile-tracker"
+  to = "/pile-tracker.html"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
