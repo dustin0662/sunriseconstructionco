@@ -778,7 +778,8 @@ var PileExport = (function () {
   "use strict";
   var C = PileCore, X = PileExport;
   var pdfjsLib = window["pdfjs-dist/build/pdf"] || window.pdfjsLib;
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "/assets/pdf.worker.min.js";
+  // The standalone build hands us a blob URL instead of a served file.
+  pdfjsLib.GlobalWorkerOptions.workerSrc = window.PDF_WORKER_SRC || "/assets/pdf.worker.min.js";
 
   var $ = function (id) { return document.getElementById(id); };
   var stage = $("stage"), cv = $("cv"), ctx = cv.getContext("2d");

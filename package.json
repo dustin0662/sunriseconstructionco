@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Netlify Functions for Sun Rise Construction tools (shipment tracking).",
   "scripts": {
+    "build:pile-tracker": "node tools/build-standalone.cjs",
     "test:pile-tracker": "node tools/test-pile-tracker.cjs"
   },
   "dependencies": {
