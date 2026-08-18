@@ -3,7 +3,10 @@
  * Bundles pile-tracker.html and the libraries it loads from /assets into one
  * self-contained file that runs from disk, with no server.
  *
- *   node tools/build-standalone.cjs
+ *   node tools/build-standalone.cjs [tracker.pdf]
+ *
+ * Given a PDF, it is embedded too, so the page opens with that tracker
+ * already loaded.
  */
 const fs = require("fs");
 const path = require("path");
@@ -46,6 +49,21 @@ html = html.replace(/\n\s*<link rel="icon"[^>]*>/, "");
 ["/assets/pdf.min.js", "/assets/pdf-lib.min.js", 'src="/assets'].forEach((left) => {
   if (html.includes(left)) throw new Error("still referencing " + left);
 });
+
+const pdfPath = process.argv[2];
+if (pdfPath) {
+  const b64 = fs.readFileSync(pdfPath).toString("base64");
+  if (/<\/script/i.test(b64)) throw new Error("unreachable: base64 cannot contain </script");
+  sub("<script>\n(function () {\n  \"use strict\";",
+    '<script id="embedded-pdf" type="text/plain">' + b64 + "</script>\n" +
+    "<script>\n" +
+    "  window.EMBEDDED_PDF = document.getElementById('embedded-pdf').textContent.trim();\n" +
+    "  window.EMBEDDED_PDF_NAME = " + JSON.stringify(path.basename(pdfPath)) + ";\n" +
+    "</script>\n" +
+    '<script>\n(function () {\n  "use strict";');
+  console.log("embedded " + path.basename(pdfPath) +
+    " (" + (fs.statSync(pdfPath).size / 1024).toFixed(0) + " KB)");
+}
 
 fs.writeFileSync(OUT, html);
 console.log("wrote " + path.relative(ROOT, OUT) + " (" + (html.length / 1048576).toFixed(2) + " MB)");

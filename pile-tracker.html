@@ -182,7 +182,7 @@
       <h3>Key</h3>
       <div class="keyrow" data-mode="green">
         <span class="swatch" style="border-color:var(--green)"></span>
-        <span class="lbl">Pull Test &amp; Cut<span class="hint">click a pile to mark green</span></span>
+        <span class="lbl">Pull Test &amp; Cut<span class="hint">click a pile to mark green · double-click for height</span></span>
         <span class="cnt" id="cntGreen">0</span>
       </div>
       <div class="keyrow" data-mode="orange">
@@ -207,6 +207,19 @@
     </div>
   </aside>
 </main>
+
+<div id="modal" class="off">
+  <div class="sheet">
+    <div class="mhead" id="mWho">—</div>
+    <label for="mInput">Pile height</label>
+    <input id="mInput" inputmode="decimal" autocomplete="off" placeholder="e.g. 114.5" />
+    <div class="mhint">Fills the Length column on the pile list. A bare number is read as inches.</div>
+    <div class="mrow">
+      <button class="btn sm" id="mCancel">Cancel</button>
+      <button class="btn primary sm" id="mSave">Save</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast"></div>
 
@@ -256,9 +269,8 @@ var PileCore = (function () {
   function itemMidX(item) { return item.transform[4] + item.width / 2; }
   function txt(item) { return (item.str || "").replace(/\s+/g, " ").trim(); }
 
+  /** The next letter along a row - used to walk each row's A, B, C… sequence. */
   function nextLetter(pos) {
-    // Pile IDs follow the exhibit-list convention: one position east of the
-    // letter printed on the map.
     var i = pos.length - 1, out = pos.split("");
     while (i >= 0) {
       if (out[i] !== "Z") { out[i] = String.fromCharCode(out[i].charCodeAt(0) + 1); return out.join(""); }
@@ -266,7 +278,8 @@ var PileCore = (function () {
     }
     return "A" + out.join("");
   }
-  function derivePileId(row, pos) { return "R" + row + "-" + nextLetter(pos); }
+  // A pile's ID is its row number and the position letter printed on the map.
+  function derivePileId(row, pos) { return "R" + row + "-" + pos; }
   function pileKey(row, pos) { return row + "|" + pos; }
 
   /**
@@ -422,16 +435,6 @@ var PileCore = (function () {
     return out;
   }
 
-  /** Reuse the explanatory half of the list page's footnote, if it has one. */
-  function readFootnote(items) {
-    var low = items.filter(function (it) { return it.transform[5] < 60 && txt(it); })
-      .sort(function (a, b) { return b.transform[5] - a.transform[5] || itemX(a) - itemX(b); })
-      .map(txt).join(" ");
-    var cut = /\bGreen\s*=/.exec(low);
-    var prefix = (cut ? low.slice(0, cut.index) : low).trim();
-    return prefix.length > 20 ? prefix : "";
-  }
-
   /**
    * Pull the title / subtitle wording out of a sheet so exports keep it.
    * Both sit on known baselines inside the sheet's title block; pdf.js splits
@@ -477,6 +480,12 @@ var PileCore = (function () {
     return subtitle;
   }
 
+  /** Heights are written in inches on this document; accept a bare number. */
+  function normalizeLength(v) {
+    v = String(v == null ? "" : v).trim();
+    return /^\d+(\.\d+)?$/.test(v) ? v + '"' : v;
+  }
+
   function toCsv(marks) {
     var head = ["Pile ID", "Row", "Map Pos", "Reveal", "Action", "Length"];
     var rows = [head].concat(marks.map(function (m) {
@@ -506,9 +515,9 @@ var PileCore = (function () {
   return {
     MARKS: MARKS, MARK_RADIUS: MARK_RADIUS, MARK_WIDTH: MARK_WIDTH,
     buildGrid: buildGrid, parseListPage: parseListPage, readHeadings: readHeadings,
-    readFootnote: readFootnote,
     retitle: retitle, derivePileId: derivePileId, nextLetter: nextLetter,
-    pileKey: pileKey, toCsv: toCsv, sortMarks: sortMarks, counts: counts
+    pileKey: pileKey, toCsv: toCsv, sortMarks: sortMarks, counts: counts,
+    normalizeLength: normalizeLength
   };
 })();
 </script>
@@ -554,9 +563,9 @@ var PileExport = (function () {
     footBaselines: [47.815, 36.294, 24.773], footSize: 7.8, footLead: 11.52
   };
 
-  var FOOT_DEFAULT = '"Map Pos" = position letter printed on the pile map (page 1). ' +
-    "Pile IDs follow the exhibit list convention (offset one position east); " +
-    "both are given so this list cross-references either document.";
+  var FOOT_DEFAULT = '"Map Pos" = the position letter printed on the pile map (page 1); ' +
+    "a pile's ID is its row number and that letter. Height is the driven length " +
+    "recorded in the field.";
 
   // pdf-lib's standard fonts are WinAnsi; drop anything that cannot be encoded.
   function safe(s) {
@@ -764,13 +773,31 @@ var PileExport = (function () {
 <style>
   .prow{grid-template-columns:14px 1fr auto auto;}
   .prow .meta{display:grid;grid-template-columns:80px 1fr;align-items:center;gap:6px;}
-  .prow input.pid{
-    width:74px;background:transparent;border:1px solid transparent;border-radius:6px;
-    color:#fff;font-family:var(--b);font-size:13px;font-weight:700;padding:3px 5px;
+  .prow .idline{font-weight:700;color:#fff;font-size:13px;}
+  .prow input.len:focus{border-color:var(--orange);outline:none;}
+  #modal{
+    position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+    background:rgba(6,6,12,.68);padding:20px;
   }
-  .prow input.pid:hover,.prow input.pid:focus{background:var(--ink2);}
-  .prow input.pid:hover,.prow input.pid:focus,.prow input.len:focus{border-color:var(--line);outline:none;}
-  .prow input.pid:focus,.prow input.len:focus{border-color:var(--orange);}
+  #modal.off{display:none;}
+  #modal .sheet{
+    background:var(--ink2);border:1px solid var(--line);border-left:4px solid var(--orange);
+    border-radius:12px;padding:18px 18px 16px;width:min(360px,94vw);
+    box-shadow:0 20px 60px rgba(0,0,0,.6);
+  }
+  #modal .mhead{font-size:13px;color:var(--muted);margin-bottom:12px;}
+  #modal .mhead b{color:#fff;font-size:15px;}
+  #modal label{
+    display:block;font-family:var(--d);font-weight:400;font-size:15px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:6px;
+  }
+  #modal input{
+    width:100%;background:var(--ink3);border:1px solid var(--line);border-radius:8px;
+    color:#fff;font-family:var(--b);font-size:17px;padding:10px 12px;
+  }
+  #modal input:focus{border-color:var(--orange);outline:none;}
+  #modal .mhint{font-size:11.5px;color:var(--muted);margin:8px 0 14px;}
+  #modal .mrow{display:flex;justify-content:flex-end;gap:8px;}
 </style>
 
 <script>
@@ -835,14 +862,15 @@ var PileExport = (function () {
         map: C.readHeadings(items1, srcH - X.MAP.titleBaseline, srcH - X.MAP.subBaseline),
         list: C.readHeadings(listItems, X.LIST.titleBaseline, X.LIST.subBaseline)
       };
-      S.footPrefix = C.readFootnote(listPages.length ? listPages[listPages.length - 1] : []) || X.FOOT_DEFAULT;
+      S.footPrefix = X.FOOT_DEFAULT;
 
       S.piles = grid.piles; S.byKey = grid.byKey;
       S.original = {};
       existing.forEach(function (r) {
         var key = C.pileKey(r.row, r.pos);
         if (!S.byKey[key]) return;
-        S.original[key] = { mark: r.mark, id: r.id, len: r.len, rev: r.rev };
+        // The ID is derived from row + position, not read back from the sheet.
+        S.original[key] = { mark: r.mark, len: r.len, rev: r.rev };
       });
       S.marks = restore() || clone(S.original);
 
@@ -873,7 +901,7 @@ var PileExport = (function () {
 
   function clone(o) {
     var out = {};
-    Object.keys(o).forEach(function (k) { out[k] = { mark: o[k].mark, id: o[k].id, len: o[k].len, rev: o[k].rev }; });
+    Object.keys(o).forEach(function (k) { out[k] = { mark: o[k].mark, len: o[k].len, rev: o[k].rev }; });
     return out;
   }
   function persist() {
@@ -1001,15 +1029,51 @@ var PileExport = (function () {
     if (mode === "erase" || (S.marks[p.key] && S.marks[p.key].mark === mode)) delete S.marks[p.key];
     else {
       var prev = S.marks[p.key] || S.original[p.key] || {};
-      S.marks[p.key] = {
-        mark: mode,
-        id: prev.id || p.id,
-        len: prev.len || "",
-        rev: prev.rev || p.rev
-      };
+      S.marks[p.key] = { mark: mode, len: prev.len || "", rev: prev.rev || p.rev };
     }
     persist(); draw(); renderList(); updateCounts(); hud();
   }
+
+  // Double-click opens the height editor. The first click of the pair has
+  // already toggled the mark, so it is rolled back before the editor opens.
+  var lastHit = null, modalPile = null;
+  function onPileClick(p, mode) {
+    var now = new Date().getTime();
+    if (lastHit && lastHit.key === p.key && now - lastHit.at < 420 && mode !== "erase") {
+      if (lastHit.before) S.marks[p.key] = lastHit.before; else delete S.marks[p.key];
+      lastHit = null;
+      if (!S.marks[p.key]) applyMark(p, mode); else { persist(); draw(); renderList(); updateCounts(); hud(); }
+      openHeight(p);
+      return;
+    }
+    var prev = S.marks[p.key];
+    lastHit = { key: p.key, at: now, before: prev ? { mark: prev.mark, len: prev.len, rev: prev.rev } : null };
+    applyMark(p, mode);
+  }
+
+  function openHeight(p) {
+    modalPile = p;
+    $("mWho").innerHTML = "<b>" + p.id + "</b> · Row " + p.row + " · Pos " + p.pos +
+      " · " + (p.rev || "no reveal");
+    $("mInput").value = (S.marks[p.key] && S.marks[p.key].len) || "";
+    $("modal").className = "";
+    $("mInput").focus(); $("mInput").select();
+  }
+  function closeHeight(save) {
+    if (save && modalPile && S.marks[modalPile.key]) {
+      S.marks[modalPile.key].len = C.normalizeLength($("mInput").value);
+      persist(); renderList();
+    }
+    modalPile = null;
+    $("modal").className = "off";
+  }
+  $("mSave").addEventListener("click", function () { closeHeight(true); });
+  $("mCancel").addEventListener("click", function () { closeHeight(false); });
+  $("modal").addEventListener("click", function (e) { if (e.target === $("modal")) closeHeight(false); });
+  $("mInput").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); closeHeight(true); }
+    else if (e.key === "Escape") { e.preventDefault(); closeHeight(false); }
+  });
 
   var drag = null, pointers = {}, pinch = null;
   cv.addEventListener("pointerdown", function (e) {
@@ -1048,12 +1112,13 @@ var PileExport = (function () {
     if (Object.keys(pointers).length < 2) pinch = null;
     if (drag && !drag.moved) {
       var p = pileAt(e.offsetX, e.offsetY);
-      if (p) applyMark(p, e.shiftKey || e.button === 2 ? "erase" : S.mode);
+      if (p) onPileClick(p, e.shiftKey || e.button === 2 ? "erase" : S.mode);
     }
     drag = null;
   }
   cv.addEventListener("pointerup", endPointer);
   cv.addEventListener("pointercancel", function (e) { delete pointers[e.pointerId]; drag = null; pinch = null; });
+  cv.addEventListener("dblclick", function (e) { e.preventDefault(); });
   cv.addEventListener("contextmenu", function (e) {
     e.preventDefault();
     var p = pileAt(e.offsetX, e.offsetY);
@@ -1106,7 +1171,7 @@ var PileExport = (function () {
       var p = S.byKey[k], m = S.marks[k];
       return {
         key: k, row: p.row, pos: p.pos, x: p.x, y: p.y, mark: m.mark,
-        id: m.id || p.id, len: m.len || "", rev: m.rev || p.rev,
+        id: p.id, len: m.len || "", rev: m.rev || p.rev,
         mapRev: p.rev, revMismatch: !!(m.rev && p.rev && m.rev !== p.rev)
       };
     });
@@ -1139,21 +1204,23 @@ var PileExport = (function () {
       el.innerHTML =
         '<span class="dot" style="border-color:' + C.MARKS[r.mark].css + '"></span>' +
         '<span class="meta">' +
-          '<span class="idline"><input class="pid" value="" /></span>' +
+          '<span class="idline"></span>' +
           '<span class="subline"></span>' +
         "</span>" +
-        '<span class="cell"><input class="len" placeholder="len" value="" /></span>' +
+        '<span class="cell"><input class="len" placeholder="ht" title="Pile height" value="" /></span>' +
         '<button class="x" title="Remove">×</button>';
-      var pid = el.querySelector(".pid"), len = el.querySelector(".len");
-      pid.value = r.id; len.value = r.len;
-      var sub = "Row " + r.row + " · Pos " + r.pos + " · " + (r.rev || "—") +
+      var len = el.querySelector(".len");
+      el.querySelector(".idline").textContent = r.id;
+      len.value = r.len;
+      // The ID already carries the position letter, so the line shows the
+      // reveal code in full instead of repeating it.
+      var sub = "Row " + r.row + " · " + (r.rev || "—") +
         (r.revMismatch ? "  (map says " + r.mapRev + ")" : "");
       el.querySelector(".subline").textContent = sub;
       el.querySelector(".subline").title = sub;
-      pid.addEventListener("change", function () {
-        S.marks[r.key].id = pid.value.trim() || C.derivePileId(r.row, r.pos); persist();
+      len.addEventListener("change", function () {
+        len.value = S.marks[r.key].len = C.normalizeLength(len.value); persist();
       });
-      len.addEventListener("change", function () { S.marks[r.key].len = len.value.trim(); persist(); });
       el.querySelector(".x").addEventListener("click", function () {
         delete S.marks[r.key]; persist(); draw(); renderList(); updateCounts();
       });
@@ -1245,6 +1312,18 @@ var PileExport = (function () {
   });
   window.addEventListener("resize", resize);
   resize();
+
+  // The standalone build can carry a tracker with it, so it opens ready to go.
+  if (window.EMBEDDED_PDF) {
+    try {
+      var bin = atob(window.EMBEDDED_PDF), buf = new Uint8Array(bin.length);
+      for (var b = 0; b < bin.length; b++) buf[b] = bin.charCodeAt(b);
+      loadFile(new File([buf], window.EMBEDDED_PDF_NAME || "tracker.pdf", { type: "application/pdf" }));
+    } catch (e) {
+      console.error(e);
+      toast("Could not open the built-in tracker - drop a PDF in instead.", true);
+    }
+  }
 })();
 </script>
 </body>

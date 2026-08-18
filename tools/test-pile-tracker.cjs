@@ -82,16 +82,24 @@ function eq(name, got, want) { check(name, got === want, "got " + JSON.stringify
     (revDiff.length ? "  (" + revDiff.map((r) => r.id).join(", ") + ")" : ""));
   check("reveal codes agree with the map for all but the known exception", revDiff.length <= 1,
     revDiff.map((r) => r.id).join(", "));
+  check("a pile ID is its row number and map position",
+    grid.piles.every((p) => p.id === "R" + p.row + "-" + p.pos),
+    grid.piles.filter((p) => p.id !== "R" + p.row + "-" + p.pos).slice(0, 3).map((p) => p.id).join(", "));
   const idRule = existing.filter((r) => r.id !== C.derivePileId(r.row, r.pos));
-  console.log("       pile IDs following the one-position-east rule: " +
-    (existing.length - idRule.length) + "/" + existing.length +
-    (idRule.length ? "  (" + idRule.map((r) => r.id).join(", ") + ")" : ""));
+  console.log("       listed IDs already matching that rule: " +
+    (existing.length - idRule.length) + "/" + existing.length);
+
+  console.log("\nHeights");
+  const norm = [["114.5", '114.5"'], ['114.5"', '114.5"'], ["", ""], ["12 ft", "12 ft"], ["  93 ", '93"']];
+  check("a bare number is read as inches",
+    norm.every(([raw, want]) => C.normalizeLength(raw) === want),
+    norm.filter(([raw, want]) => C.normalizeLength(raw) !== want).map(([r]) => r).join(", "));
 
   console.log("\nExport");
   const marks = existing.map((r) => {
     const p = grid.byKey[C.pileKey(r.row, r.pos)];
     return { key: p.key, row: r.row, pos: r.pos, x: p.x, y: p.y, mark: r.mark,
-             id: r.id, len: r.len, rev: r.rev, revMismatch: r.rev !== p.rev };
+             id: p.id, len: r.len, rev: r.rev, revMismatch: r.rev !== p.rev };
   });
   const counts = C.counts(marks);
   console.log("       marking " + marks.length + " piles (" + counts.green + " green / " + counts.orange + " orange)");
@@ -99,7 +107,7 @@ function eq(name, got, want) { check(name, got === want, "got " + JSON.stringify
     headings: {
       map: C.readHeadings(items1, srcH - X.MAP.titleBaseline, srcH - X.MAP.subBaseline),
       list: C.readHeadings(listItems, X.LIST.titleBaseline, X.LIST.subBaseline),
-      footPrefix: C.readFootnote(listItems)
+      footPrefix: X.FOOT_DEFAULT
     } });
   const outPath = path.join(require("os").tmpdir(), "pile-tracker-export.pdf");
   fs.writeFileSync(outPath, out);
@@ -137,7 +145,7 @@ function eq(name, got, want) { check(name, got === want, "got " + JSON.stringify
     headings: {
       map: C.readHeadings(items1, srcH - X.MAP.titleBaseline, srcH - X.MAP.subBaseline),
       list: C.readHeadings(listItems, X.LIST.titleBaseline, X.LIST.subBaseline),
-      footPrefix: C.readFootnote(listItems)
+      footPrefix: X.FOOT_DEFAULT
     } });
   const rt2 = await pdfjs.getDocument({ data: new Uint8Array(out2), verbosity: 0 }).promise;
   const perPage = X.LIST.rowsPerCol * 2;
