@@ -254,6 +254,7 @@ var PileCore = (function () {
     var s = a.slice().sort(function (x, y) { return x - y; });
     return s[Math.floor(s.length / 2)];
   }
+  function round2(v) { return Math.round(v * 100) / 100; }
   function modeOf(a) {
     var m = {}, best = null, bestN = 0;
     a.forEach(function (v) {
@@ -364,36 +365,68 @@ var PileCore = (function () {
       run.forEach(function (p) { p.row = n; });
     });
 
+    // A handful of position letters are drawn above their dot rather than beside
+    // it, which would put those piles a fraction of a space off. Piles in a row
+    // are evenly spaced, so a letter sitting well off that line is replaced by
+    // the position its neighbours imply. Every other letter keeps its measured
+    // position, since the spacing drifts slightly down a long row.
+    var gaps = [];
+    runs.forEach(function (run) {
+      for (var i = 1; i < run.length; i++) gaps.push(round2(run[i - 1].y - run[i].y));
+    });
+    var spacing = modeOf(gaps) || 0;
+    var strays = 0;
+    if (spacing > 0) {
+      runs.forEach(function (run) {
+        if (run.length < 3) return;
+        var top = median(run.map(function (p, i) { return p.y + i * spacing; }));
+        var off = run.map(function (p, i) { return Math.abs(p.y - (top - i * spacing)) > spacing / 6; });
+        run.forEach(function (p, i) {
+          if (!off[i]) return;
+          var lo = i - 1, hi = i + 1;
+          while (lo >= 0 && off[lo]) lo--;
+          while (hi < run.length && off[hi]) hi++;
+          if (lo >= 0 && hi < run.length) p.y = run[lo].y + (run[hi].y - run[lo].y) * (i - lo) / (hi - lo);
+          else if (lo >= 1) p.y = run[lo].y - (run[lo - 1].y - run[lo].y) * (i - lo);
+          else if (hi + 1 < run.length) p.y = run[hi].y + (run[hi].y - run[hi + 1].y) * (hi - i);
+          else return;
+          strays++;
+        });
+      });
+    }
+
     piles = piles.filter(function (p) { return p.row != null; });
     piles.forEach(function (p) { delete p.run; p.id = derivePileId(p.row, p.pos); p.key = pileKey(p.row, p.pos); });
 
-    // Reveal codes: normally centred 22pt below their dot; the last pile of a
-    // row has its code nudged aside, so anything left over is matched to the
-    // closest still-unlabelled dot.
-    var taken = {}, leftovers = [];
+    // A pile's reveal code is printed on the same vertical line, a little over
+    // half a space above the dot - closer to the dot above it than to its own,
+    // so it has to be matched by the offset rather than by proximity. That
+    // offset is measured from the sheet: it is the commonest gap between a code
+    // and the nearest dot below it.
+    var drops = [];
+    reveals.forEach(function (it) {
+      var cx = itemMidX(it), cy = capMid(it), best = null;
+      piles.forEach(function (p) {
+        if (Math.abs(p.x - cx) > 6 || p.y > cy) return;
+        if (!best || p.y > best.y) best = p;
+      });
+      if (best) drops.push(round2(cy - best.y));
+    });
+    var revDrop = modeOf(drops) || 0;
+    var taken = {};
     function index(p) { return p.row + "/" + p.pos; }
     reveals.forEach(function (it) {
-      var cx = itemMidX(it), cy = capMid(it), hit = null;
-      for (var j = 0; j < piles.length; j++) {
-        var p = piles[j], dy = p.y - cy;
-        if (Math.abs(p.x - cx) < 6 && dy > 14 && dy < 30 && !taken[index(p)]) { hit = p; break; }
-      }
-      if (hit) { taken[index(hit)] = true; hit.rev = txt(it); }
-      else leftovers.push(it);
-    });
-    leftovers.forEach(function (it) {
-      var cx = itemMidX(it), cy = capMid(it), best = null, bd = Infinity;
+      var cx = itemMidX(it), cy = capMid(it), best = null, bd = spacing ? spacing / 4 : 12;
       piles.forEach(function (p) {
-        if (taken[index(p)]) return;
-        var d = (p.x - cx) * (p.x - cx) + (p.y - 22 - cy) * (p.y - 22 - cy);
-        if (d < bd) { bd = d; best = p; }
+        var d = Math.abs(p.x - cx) + Math.abs(cy - revDrop - p.y);
+        if (d < bd && !taken[index(p)]) { bd = d; best = p; }
       });
       if (best) { taken[index(best)] = true; best.rev = txt(it); }
     });
 
     var byKey = {};
     piles.forEach(function (p) { byKey[p.key] = p; });
-    return { piles: piles, byKey: byKey, problems: problems, rowCount: runs.length };
+    return { piles: piles, byKey: byKey, problems: problems, rowCount: runs.length, spacing: spacing, strays: strays };
   }
 
   /**
@@ -655,10 +688,6 @@ var PileExport = (function () {
     if (pageNo !== pageCount) return;
     var foot = footPrefix + " Green = " + C.MARKS.green.label + " (" + counts.green + ")" +
       " · Orange = " + C.MARKS.orange.label + " (" + counts.orange + ").";
-    if (counts.mismatched) {
-      foot += " " + counts.mismatched + (counts.mismatched === 1
-        ? " listed reveal code differs" : " listed reveal codes differ") + " from the map - field-verify.";
-    }
     var maxW = L.w - 2 * L.marginX, words = safe(foot).split(" "), line = "", lines = [];
     words.forEach(function (w) {
       var t = line ? line + " " + w : w;
@@ -689,7 +718,6 @@ var PileExport = (function () {
     };
     var marks = C.sortMarks(opts.marks);
     var counts = C.counts(marks);
-    counts.mismatched = marks.filter(function (m) { return m.revMismatch; }).length;
 
     // ---- page 1: base map + fresh annotation layer -------------------------
     var page = doc.getPage(0);
@@ -869,8 +897,9 @@ var PileExport = (function () {
       existing.forEach(function (r) {
         var key = C.pileKey(r.row, r.pos);
         if (!S.byKey[key]) return;
-        // The ID is derived from row + position, not read back from the sheet.
-        S.original[key] = { mark: r.mark, len: r.len, rev: r.rev };
+        // Only the marking and the height come off the sheet; ID and reveal
+        // are read from the map itself.
+        S.original[key] = { mark: r.mark, len: r.len };
       });
       S.marks = restore() || clone(S.original);
 
@@ -901,7 +930,7 @@ var PileExport = (function () {
 
   function clone(o) {
     var out = {};
-    Object.keys(o).forEach(function (k) { out[k] = { mark: o[k].mark, len: o[k].len, rev: o[k].rev }; });
+    Object.keys(o).forEach(function (k) { out[k] = { mark: o[k].mark, len: o[k].len }; });
     return out;
   }
   function persist() {
@@ -1029,7 +1058,7 @@ var PileExport = (function () {
     if (mode === "erase" || (S.marks[p.key] && S.marks[p.key].mark === mode)) delete S.marks[p.key];
     else {
       var prev = S.marks[p.key] || S.original[p.key] || {};
-      S.marks[p.key] = { mark: mode, len: prev.len || "", rev: prev.rev || p.rev };
+      S.marks[p.key] = { mark: mode, len: prev.len || "" };
     }
     persist(); draw(); renderList(); updateCounts(); hud();
   }
@@ -1171,8 +1200,7 @@ var PileExport = (function () {
       var p = S.byKey[k], m = S.marks[k];
       return {
         key: k, row: p.row, pos: p.pos, x: p.x, y: p.y, mark: m.mark,
-        id: p.id, len: m.len || "", rev: m.rev || p.rev,
-        mapRev: p.rev, revMismatch: !!(m.rev && p.rev && m.rev !== p.rev)
+        id: p.id, len: m.len || "", rev: p.rev
       };
     });
   }
@@ -1214,8 +1242,7 @@ var PileExport = (function () {
       len.value = r.len;
       // The ID already carries the position letter, so the line shows the
       // reveal code in full instead of repeating it.
-      var sub = "Row " + r.row + " · " + (r.rev || "—") +
-        (r.revMismatch ? "  (map says " + r.mapRev + ")" : "");
+      var sub = "Row " + r.row + " · " + (r.rev || "—");
       el.querySelector(".subline").textContent = sub;
       el.querySelector(".subline").title = sub;
       len.addEventListener("change", function () {
