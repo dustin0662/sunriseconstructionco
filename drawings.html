@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<title>Midway — Drawings Data Entry</title>
+<style>
+  :root{--bg:#0a0a14;--panel:rgba(18,22,36,.94);--fg:#e8eaf0;--muted:#9aa1b2;--accent:#f97316;
+    --ok:#22c55e;--warn:#facc15;--bad:#ef4444;}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-user-select:none;user-select:none}
+  #c{position:fixed;inset:0;display:block;touch-action:none}
+  .panel{position:absolute;background:var(--panel);border:1px solid rgba(255,255,255,.08);
+    border-radius:10px;backdrop-filter:blur(8px);box-shadow:0 8px 28px rgba(0,0,0,.4)}
+  #top{top:8px;left:8px;right:8px;padding:8px 12px;display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap}
+  #top .t{font-weight:600;font-size:14px}
+  #top .s{color:var(--muted);font-size:11px}
+  .btn{background:rgba(255,255,255,.06);color:var(--fg);border:1px solid rgba(255,255,255,.12);
+    border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;cursor:pointer;line-height:1.2}
+  .btn:hover{background:rgba(255,255,255,.12)}
+  .btn.primary{background:rgba(249,115,22,.28);border-color:rgba(249,115,22,.55);color:#ffe7d4}
+  .btn.primary:disabled,.btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn.ghost{background:transparent}
+  .btn.on{background:rgba(34,197,94,.28);border-color:rgba(34,197,94,.55);color:#d1fadf}
+  a.btn{text-decoration:none;display:inline-block}
+  select{background:rgba(255,255,255,.05);color:var(--fg);border:1px solid rgba(255,255,255,.12);
+    border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit}
+  input[type=number],input[type=text]{width:100%;padding:9px 11px;background:rgba(255,255,255,.05);color:var(--fg);
+    border:1px solid rgba(255,255,255,.12);border-radius:8px;font-size:15px;font-family:inherit}
+  input:focus{outline:none;border-color:var(--accent)}
+  #legend{bottom:8px;left:8px;padding:10px 12px;font-size:12px;max-width:46vw}
+  #legend h3{margin:0 0 6px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .lg{display:flex;align-items:center;gap:6px;margin:3px 0}
+  .sw{width:12px;height:12px;border-radius:3px;border:1px solid rgba(255,255,255,.25)}
+  #hint{bottom:8px;right:8px;padding:8px 12px;font-size:11px;color:var(--muted);max-width:40vw;text-align:right}
+  /* Queue badge */
+  #qbadge{font-size:11px;padding:3px 8px;border-radius:12px;background:rgba(250,204,21,.18);
+    border:1px solid rgba(250,204,21,.45);color:#fde68a;display:none}
+  #qbadge.show{display:inline-block}
+  /* Entry sheet */
+  #entry{position:absolute;top:0;right:0;bottom:0;width:380px;max-width:92vw;
+    background:var(--panel);border-left:1px solid rgba(255,255,255,.1);
+    transform:translateX(105%);transition:transform .25s ease;display:flex;flex-direction:column;z-index:20}
+  #entry.open{transform:translateX(0)}
+  #entry header{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
+  #entry header .row{font-size:20px;font-weight:700}
+  #entry header .prog{color:var(--muted);font-size:12px;margin-top:2px}
+  #entry .body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+  #photo{width:100%;aspect-ratio:4/3;border-radius:10px;background:rgba(0,0,0,.35);
+    display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+  #photo img{width:100%;height:100%;object-fit:cover}
+  #photo .ph{color:var(--muted);font-size:12px;text-align:center;padding:0 16px}
+  #bar{height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden;display:none}
+  #bar.show{display:block}
+  #bar > div{height:100%;width:0;background:var(--accent);transition:width .2s}
+  label.fld{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  #entry footer{padding:12px 16px;border-top:1px solid rgba(255,255,255,.08);display:flex;gap:8px;flex-wrap:wrap}
+  #entry footer .btn{flex:1;padding:12px;min-width:0}
+  #entry .advanced{font-size:12px;color:var(--muted);margin-top:8px}
+  #entry .advanced summary{cursor:pointer;padding:4px 0}
+  #entry .advanced .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
+  #entry .advanced .row2 .btn{padding:8px;flex:none;width:100%}
+  /* Floating action panels */
+  .float-panel{position:absolute;background:var(--panel);border:1px solid rgba(255,255,255,.08);
+    border-radius:10px;padding:14px;backdrop-filter:blur(8px);box-shadow:0 8px 28px rgba(0,0,0,.4);
+    z-index:18;display:none}
+  .float-panel.show{display:block}
+  #assign-panel{top:64px;right:12px;width:280px}
+  #assign-panel h4{margin:0 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  #assign-count{font-size:18px;font-weight:700;margin-bottom:8px}
+  #toast{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:rgba(20,24,38,.96);
+    border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:10px 14px;font-size:12.5px;
+    opacity:0;transition:opacity .2s;pointer-events:none;z-index:50;max-width:90vw;text-align:center}
+  #toast.show{opacity:1}
+  #toast.bad{border-color:rgba(239,68,68,.6);background:rgba(60,12,12,.96)}
+  body.readonly .admin-only{display:none!important}
+  body.no-edit #btn-photo,body.no-edit #serial{pointer-events:none;opacity:.55}
+  #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;background:var(--bg);z-index:60}
+  #loading.hidden{display:none}
+  #failures{position:fixed;top:64px;left:12px;width:300px;max-height:40vh;overflow-y:auto;z-index:40;display:none}
+  #failures.show{display:block}
+  #failures .item{background:var(--panel);border:1px solid rgba(239,68,68,.5);border-radius:8px;padding:10px 12px;margin-bottom:6px}
+  #failures .item .id{font-weight:600;font-size:13px;color:#fecaca}
+  #failures .item .sub{font-size:11px;color:var(--muted);margin-top:2px}
+  #failures .item .x{float:right;cursor:pointer;color:var(--muted)}
+</style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="loading">Loading drawings…</div>
+
+  <div id="top" class="panel">
+    <div>
+      <div class="t">Midway — Drawings <span id="mode-badge" style="font-size:10px;color:var(--accent)"></span></div>
+      <div class="s" id="sub">—</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span id="qbadge">0 queued</span>
+      <span id="who" style="color:var(--muted);font-size:11px"></span>
+      <button class="btn admin-only" id="btn-assign">Assign sections</button>
+      <button class="btn" id="btn-invite" style="display:none">Invite user</button>
+      <button class="btn admin-only" id="btn-export">Export CSV</button>
+      <button class="btn" id="btn-auth">Sign in</button>
+      <a class="btn ghost" href="references.html">References</a>
+      <a class="btn ghost" href="/">Dashboard</a>
+    </div>
+  </div>
+
+  <div id="legend" class="panel">
+    <h3>Sections</h3>
+    <div id="legend-rows"></div>
+    <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,.08);font-size:11px">
+      <div class="lg"><span class="sw" style="background:transparent;border:1.5px solid #ef4444"></span>No serial yet</div>
+      <div class="lg"><span class="sw" style="background:transparent;border:1.5px solid #22c55e"></span>Captured</div>
+    </div>
+  </div>
+  <div id="hint" class="panel">Tap any module to capture · drag to pan · pinch/scroll to zoom</div>
+
+  <!-- Admin: section-assign panel -->
+  <div id="assign-panel" class="float-panel">
+    <h4>Assign sections</h4>
+    <div id="assign-count">0 selected</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+      Drag to box-select or tap modules. Pinch/scroll still works for zoom.
+    </div>
+    <label class="fld">Section</label>
+    <select id="assign-section" style="width:100%;margin:4px 0 10px"></select>
+    <div style="display:flex;gap:6px">
+      <button class="btn primary" id="assign-apply" style="flex:1;padding:9px">Apply</button>
+      <button class="btn" id="assign-clear" style="flex:1;padding:9px">Clear</button>
+    </div>
+    <button class="btn ghost" id="assign-done" style="width:100%;margin-top:8px;padding:8px;color:var(--muted)">Exit assign mode</button>
+  </div>
+
+  <!-- Capture sheet -->
+  <div id="entry">
+    <header>
+      <div class="row" id="e-row">Row —</div>
+      <div class="prog" id="e-prog">Module 0 / 0</div>
+    </header>
+    <div class="body">
+      <div id="photo"><div class="ph">No photo yet</div></div>
+      <div id="bar"><div></div></div>
+      <input type="file" id="file" accept="image/*" capture="environment" style="display:none" />
+      <button class="btn primary admin-only" id="btn-photo" style="width:100%;padding:12px">📷 Take / Upload photo</button>
+      <div>
+        <label class="fld">Serial number (field label, editable)</label>
+        <input type="text" id="serial" placeholder="—" autocomplete="off" />
+        <div class="ocr" id="ocr" style="font-size:11px;color:var(--muted);min-height:14px">—</div>
+      </div>
+      <div style="color:var(--muted);font-size:11px">Section <b id="e-sec" style="color:var(--fg)">—</b> · Row <b id="e-rowid" style="color:var(--fg)">—</b> · Module <b id="e-mod" style="color:var(--fg)">—</b></div>
+      <details class="advanced">
+        <summary>Advanced: shift serials in this row</summary>
+        <div style="margin-top:6px;color:var(--muted);font-size:11px">
+          Re-assigns serials along the row. Example: shift 5–10 by +1 means module 5 takes what was module 4&apos;s serial, etc.
+        </div>
+        <div class="row2">
+          <div><label class="fld">From #</label><input id="shift-from" type="number" min="1" /></div>
+          <div><label class="fld">To #</label><input id="shift-to" type="number" min="1" /></div>
+        </div>
+        <div class="row2">
+          <button class="btn admin-only" id="shift-up">Shift up (-1)</button>
+          <button class="btn admin-only" id="shift-down">Shift down (+1)</button>
+        </div>
+      </details>
+    </div>
+    <footer>
+      <button class="btn" id="btn-prev">‹ Prev</button>
+      <button class="btn primary" id="btn-next" disabled>Next ›</button>
+      <button class="btn ghost" id="btn-close" style="flex:none;width:42px">✕</button>
+    </footer>
+  </div>
+
+  <!-- Failure tray -->
+  <div id="failures"></div>
+
+  <div id="toast"></div>
+
+  <div id="gate" class="panel" style="position:fixed;inset:auto;left:50%;top:50%;transform:translate(-50%,-50%);
+       width:320px;max-width:92vw;padding:22px;text-align:center;z-index:70;display:none">
+    <div style="font-size:16px;font-weight:600;margin-bottom:6px">Sign in to enter data</div>
+    <div style="color:var(--muted);font-size:12.5px;margin-bottom:14px">Captures are shared with your team and logged with your name, date and time.</div>
+    <button class="btn primary" id="gate-login" style="width:100%;padding:12px">Sign in</button>
+    <div style="color:var(--muted);font-size:11px;margin-top:10px">Need access? Ask an admin to invite you.</div>
+  </div>
+
+  <div id="invite-modal" class="panel" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+       width:340px;max-width:92vw;padding:20px;z-index:71;display:none">
+    <div style="font-weight:600;margin-bottom:10px">Invite a teammate</div>
+    <input type="email" id="invite-email" placeholder="name@company.com" />
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn primary" id="invite-send" style="flex:1;padding:10px">Generate link</button>
+      <button class="btn" id="invite-cancel" style="flex:1;padding:10px">Cancel</button>
+    </div>
+    <div style="color:var(--muted);font-size:11px;margin-top:8px">You'll get a copyable invite link to send them.</div>
+  </div>
+
+  <script src="assets/midway-api.js"></script>
+  <script>
+  const $=id=>document.getElementById(id);
+  const READONLY = new URLSearchParams(location.search).get("view")==="readonly";
+  if(READONLY){document.body.classList.add("readonly");$("mode-badge").textContent="READ-ONLY";}
+  else $("mode-badge").textContent="";
+
+  // ---- Section palette (10 sections, distinct, plus unassigned) ----------
+  const SECTION_LIST=["N1","N2","N3","N4","N5","N6","N7-A","N7-B","N8","N9"];
+  const SECTION_COLORS={
+    "N1":"#3b82f6","N2":"#10b981","N3":"#f59e0b","N4":"#ef4444","N5":"#a855f7",
+    "N6":"#ec4899","N7-A":"#14b8a6","N7-B":"#06b6d4","N8":"#84cc16","N9":"#fb923c",
+  };
+  const UNASSIGNED="#374151";
+  const STATE_RED ="#ef4444", STATE_GREEN="#22c55e";
+
+  function toast(m,ms=2400,bad=false){const t=$("toast");t.textContent=m;t.classList.toggle("bad",!!bad);t.classList.add("show");
+    clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove("show"),ms);}
+
+  // ---- Shared state ------------------------------------------------------
+  // assignments: moduleId -> {serial,user,ts,row,hasPhoto}
+  // sections:    moduleId -> "N3"
+  let assignments={}, sections={};
+  let signedIn=false, inFlight=0, queued=0;
+  function canEdit(){return signedIn && !READONLY;}
+
+  async function loadAll(){
+    try{
+      const data=await MidwayAPI.listAll();
+      assignments=data.captures||{};
+      sections=data.sections||{};
+      draw(); if(currentRow)renderEntry();
+    }catch(e){console.warn("load",e);}
+  }
+  function requireAuth(){ if(!signedIn){ MidwayAPI.login(); return false; } return true; }
+
+  // ---- Image resize helper -----------------------------------------------
+  function fileToDataURL(file,maxEdge=1000,q=.8){return new Promise((res,rej)=>{
+    const url=URL.createObjectURL(file);const img=new Image();
+    img.onload=()=>{const s=Math.min(1,maxEdge/Math.max(img.naturalWidth,img.naturalHeight));
+      const w=Math.round(img.naturalWidth*s),h=Math.round(img.naturalHeight*s);
+      const cv=document.createElement("canvas");cv.width=w;cv.height=h;
+      cv.getContext("2d").drawImage(img,0,0,w,h);URL.revokeObjectURL(url);
+      try{res(cv.toDataURL("image/jpeg",q));}catch(e){rej(e);}};
+    img.onerror=e=>{URL.revokeObjectURL(url);rej(e);};img.src=url;});}
+
+  // ---- Drawing data ------------------------------------------------------
+  let rows=[], overlaysMeta=[], kmz=null, images={}, world=null;
+  Promise.all([
+    fetch("data/cad_rows.json").then(r=>r.json()),
+    fetch("data/kmz_reference.json").then(r=>r.ok?r.json():null).catch(()=>null),
+  ]).then(([rd,kd])=>{
+    rows=rd.rows; overlaysMeta=rd.overlays; kmz=kd;
+    $("sub").textContent=`${rd.meta.total.toLocaleString()} modules · ${rd.meta.rowCount} rows`;
+    buildLegend();
+    computeWorld();
+    let pending=overlaysMeta.length;
+    if(!pending) finishLoad();
+    overlaysMeta.forEach((o,i)=>{const im=new Image();
+      im.onload=()=>{images[i]=im;if(--pending===0)finishLoad();};
+      im.onerror=()=>{if(--pending===0)finishLoad();};
+      // Backdrops may live under data/kmz/ (legacy orthoimagery) or be
+      // referenced directly (engineering drawing renders under data/drawings/).
+      im.src=(o.icon.indexOf("/")>=0?"data/":"data/kmz/")+o.icon;});
+  }).catch(e=>{$("loading").textContent="Failed to load: "+e;});
+  function finishLoad(){$("loading").classList.add("hidden");precomputeModules();fit();draw();}
+
+  function computeWorld(){
+    // Fallback (no KMZ geo-ref, or overlay icon doesn't match a KMZ entry):
+    // place each overlay as its own native-px rect stacked vertically.
+    const directRects=overlaysMeta.map((o,i)=>({x:0,y:i*(o.h+20),w:o.w,h:o.h}));
+    if(!kmz||!kmz.overlays){world={ovRect:directRects};return;}
+    const ovs=kmz.overlays; const lat0=Math.max(...ovs.map(o=>o.north));
+    const lon0=Math.min(...ovs.map(o=>o.west));
+    const cosLat=Math.cos(lat0*Math.PI/180); const SC=100000;
+    const rectFor=ov=>{const x=(ov.west-lon0)*cosLat*SC,x1=(ov.east-lon0)*cosLat*SC;
+      const y=(lat0-ov.north)*SC,y1=(lat0-ov.south)*SC;return {x,y,w:x1-x,h:y1-y,ov};};
+    world={ovRect:overlaysMeta.map((om,i)=>{const ov=ovs.find(o=>o.icon===om.icon);
+      return ov?rectFor(ov):directRects[i];})};
+  }
+
+  // Flat module world cache + per-row bounding boxes (for row labels + tap).
+  let modWorld=[]; // {row,n,id,x,y,w,h}
+  function precomputeModules(){
+    modWorld=[];
+    rows.forEach(r=>{
+      const rect=world.ovRect[r.ov]; const cw=r.cellU*rect.w, ch=r.cellV*rect.h;
+      r._bbox={minx:1e9,miny:1e9,maxx:-1e9,maxy:-1e9};
+      r.modules.forEach(m=>{
+        const x=rect.x+m.u*rect.w, y=rect.y+m.v*rect.h;
+        modWorld.push({row:r,n:m.n,id:m.id,x,y,w:cw,h:ch});
+        r._bbox.minx=Math.min(r._bbox.minx,x-cw); r._bbox.maxx=Math.max(r._bbox.maxx,x+cw);
+        r._bbox.miny=Math.min(r._bbox.miny,y-ch); r._bbox.maxy=Math.max(r._bbox.maxy,y+ch);
+      });
+    });
+  }
+
+  // ---- View transform ----------------------------------------------------
+  const cv=$("c"), ctx=cv.getContext("2d");
+  let cam={x:0,y:0,scale:1};
+  function resize(){cv.width=innerWidth*devicePixelRatio;cv.height=innerHeight*devicePixelRatio;
+    cv.style.width=innerWidth+"px";cv.style.height=innerHeight+"px";draw();}
+  addEventListener("resize",resize);
+  function fit(){
+    let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+    world.ovRect.forEach(r=>{minx=Math.min(minx,r.x);miny=Math.min(miny,r.y);
+      maxx=Math.max(maxx,r.x+r.w);maxy=Math.max(maxy,r.y+r.h);});
+    const w=maxx-minx,h=maxy-miny; const pad=40;
+    const sx=(innerWidth-pad*2)/w, sy=(innerHeight-pad*2)/h;
+    cam.scale=Math.min(sx,sy); cam.x=pad-minx*cam.scale; cam.y=pad-miny*cam.scale;
+  }
+  const W2S=(x,y)=>[x*cam.scale+cam.x, y*cam.scale+cam.y];
+  const S2W=(sx,sy)=>[(sx-cam.x)/cam.scale,(sy-cam.y)/cam.scale];
+
+  // Section color with state-driven border. Selection (assign mode) shows a
+  // bright outline + raised fill so it's obvious what'll be applied.
+  function colorFor(mod){
+    const sec=sections[mod.id];
+    const a=assignments[mod.id];
+    const fill=sec?SECTION_COLORS[sec]||UNASSIGNED:UNASSIGNED;
+    const border=a&&a.hasPhoto?STATE_GREEN:STATE_RED;
+    return {fill, border};
+  }
+
+  function draw(){
+    if(!world)return;
+    const dpr=devicePixelRatio;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,innerWidth,innerHeight);
+    // overlay images (dimmed underlay)
+    world.ovRect.forEach((r,i)=>{const im=images[i];if(!im)return;
+      const [sx,sy]=W2S(r.x,r.y);
+      ctx.globalAlpha=0.35;
+      ctx.drawImage(im,sx,sy,r.w*cam.scale,r.h*cam.scale);ctx.globalAlpha=1;});
+    // Modules: draw at true on-screen size (no clamping) so we don't
+    // smear neighbors into a single blob at low zoom. Per-module borders
+    // only when the cell is big enough to actually show one; when it
+    // isn't, the row gets a single outline below for state visibility.
+    const selModId=(currentRow&&entryMods[entryIdx])?entryMods[entryIdx].id:null;
+    for(const m of modWorld){
+      const w=m.w*cam.scale, h=m.h*cam.scale;
+      const small=Math.min(w,h);
+      const [sx,sy]=W2S(m.x,m.y);
+      const {fill,border}=colorFor(m);
+      const isSel=assignSelection.has(m.id);
+      ctx.globalAlpha=isSel?1:0.85;
+      ctx.fillStyle=fill;
+      // True size when visible; floor only when invisibly small so the
+      // module is still a single discoverable pixel.
+      const dw=Math.max(0.6,w), dh=Math.max(0.6,h);
+      ctx.fillRect(sx-dw/2,sy-dh/2,dw,dh);
+      if(small>=3){
+        ctx.globalAlpha=1;
+        ctx.lineWidth=isSel?2:1;
+        ctx.strokeStyle=isSel?"#fef08a":border;
+        ctx.strokeRect(sx-w/2+0.5,sy-h/2+0.5,w-1,h-1);
+      }
+      if(m.id===selModId){
+        ctx.globalAlpha=1;
+        ctx.strokeStyle="#fff"; ctx.lineWidth=2.4;
+        const ow=Math.max(8,w), oh=Math.max(8,h);
+        ctx.strokeRect(sx-ow/2-2,sy-oh/2-2,ow+4,oh+4);
+      }
+    }
+    ctx.globalAlpha=1;
+    // Row-level state ring when zoomed too far out to see per-module
+    // borders. Red = any module in this row still uncaptured, green = all
+    // captured. Lets you spot incomplete rows from the overview.
+    {
+      const sampleW=(rows[0]&&world.ovRect[rows[0].ov].w*rows[0].cellU)||1;
+      const showRowRing = sampleW*cam.scale < 3;
+      if(showRowRing){
+        for(const r of rows){
+          if(!r._bbox)continue;
+          const [sx,sy]=W2S(r._bbox.minx,r._bbox.miny);
+          const w=(r._bbox.maxx-r._bbox.minx)*cam.scale;
+          const h=(r._bbox.maxy-r._bbox.miny)*cam.scale;
+          if(sx+w<0||sy+h<0||sx>innerWidth||sy>innerHeight)continue;
+          let anyMissing=false, any=false;
+          for(const m of r.modules){
+            any=true;
+            const a=assignments[m.id];
+            if(!a||!a.hasPhoto){anyMissing=true;break;}
+          }
+          if(!any)continue;
+          ctx.strokeStyle=anyMissing?STATE_RED:STATE_GREEN;
+          ctx.lineWidth=1.4;
+          ctx.strokeRect(sx+0.5,sy+0.5,w-1,h-1);
+        }
+      }
+    }
+    // row labels (top of bbox)
+    ctx.font="11px ui-sans-serif";ctx.textAlign="center";
+    for(const r of rows){
+      if(!r._bbox)continue;
+      const cx=(r._bbox.minx+r._bbox.maxx)/2;
+      const [sx,sy]=W2S(cx,r._bbox.miny);
+      if(sx<-20||sx>innerWidth+20||sy<-10||sy>innerHeight+10)continue;
+      if(cam.scale>0.6 || r.id.length<=2){
+        ctx.fillStyle=(currentRow&&currentRow.id===r.id)?"#ffd9b4":"rgba(255,255,255,.85)";
+        ctx.fillText(r.id, sx, sy-4);
+      }
+    }
+    // assign drag rect
+    if(assignDrag){
+      const [x1,y1]=W2S(assignDrag.x0,assignDrag.y0), [x2,y2]=W2S(assignDrag.x1,assignDrag.y1);
+      ctx.fillStyle="rgba(253,224,71,.18)"; ctx.strokeStyle="#fde047"; ctx.lineWidth=1.5;
+      const rx=Math.min(x1,x2),ry=Math.min(y1,y2),rw=Math.abs(x2-x1),rh=Math.abs(y2-y1);
+      ctx.fillRect(rx,ry,rw,rh); ctx.strokeRect(rx+0.5,ry+0.5,rw-1,rh-1);
+    }
+  }
+
+  // ---- Pan / zoom / tap --------------------------------------------------
+  let dragging=false,lastX=0,lastY=0,moved=0;
+  let pts=new Map(), pinch=null;
+  cv.addEventListener("pointerdown",e=>{
+    pts.set(e.pointerId,e);
+    if(assignMode && pts.size===1 && canEdit()){
+      const [wx,wy]=S2W(e.clientX,e.clientY);
+      assignDrag={x0:wx,y0:wy,x1:wx,y1:wy};
+      return;
+    }
+    dragging=true;moved=0;lastX=e.clientX;lastY=e.clientY;cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener("pointermove",e=>{
+    if(!pts.has(e.pointerId))return; pts.set(e.pointerId,e);
+    if(pts.size===2){
+      const[a,b]=[...pts.values()]; const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+      const mx=(a.clientX+b.clientX)/2,my=(a.clientY+b.clientY)/2;
+      if(pinch){zoomAt(mx,my,d/pinch);} pinch=d; dragging=false; assignDrag=null;
+      return;
+    }
+    if(assignDrag){
+      const [wx,wy]=S2W(e.clientX,e.clientY);
+      assignDrag.x1=wx; assignDrag.y1=wy; draw();
+      return;
+    }
+    if(!dragging)return;
+    const dx=e.clientX-lastX,dy=e.clientY-lastY;moved+=Math.abs(dx)+Math.abs(dy);
+    cam.x+=dx;cam.y+=dy;lastX=e.clientX;lastY=e.clientY;draw();
+  });
+  cv.addEventListener("pointerup",e=>{
+    pts.delete(e.pointerId);
+    if(pts.size<2)pinch=null;
+    if(assignDrag){
+      const d=assignDrag; assignDrag=null;
+      const x1=Math.min(d.x0,d.x1),x2=Math.max(d.x0,d.x1);
+      const y1=Math.min(d.y0,d.y1),y2=Math.max(d.y0,d.y1);
+      // Treat near-zero drags as a single-tap toggle.
+      if(Math.abs(x2-x1)<2/cam.scale && Math.abs(y2-y1)<2/cam.scale){
+        const m=nearestModule(e.clientX,e.clientY); if(m) toggleAssignSel(m.id);
+      } else {
+        for(const m of modWorld){
+          if(m.x>=x1 && m.x<=x2 && m.y>=y1 && m.y<=y2) assignSelection.add(m.id);
+        }
+      }
+      updateAssignCount(); draw(); return;
+    }
+    dragging=false;
+    if(moved<6) handleTap(e.clientX,e.clientY);
+  });
+  cv.addEventListener("wheel",e=>{e.preventDefault();
+    const f=Math.pow(1.0015,-e.deltaY);zoomAt(e.clientX,e.clientY,f);},{passive:false});
+  function zoomAt(sx,sy,f){const[wx,wy]=S2W(sx,sy);cam.scale*=f;
+    cam.x=sx-wx*cam.scale;cam.y=sy-wy*cam.scale;draw();}
+
+  function nearestModule(sx,sy){
+    const[wx,wy]=S2W(sx,sy); let best=null,bd=1e18;
+    for(const m of modWorld){const dx=m.x-wx,dy=m.y-wy;const d=dx*dx+dy*dy;if(d<bd){bd=d;best=m;}}
+    return best;
+  }
+  function handleTap(sx,sy){
+    const m=nearestModule(sx,sy); if(!m)return;
+    openEntry(m);
+  }
+
+  // ---- Legend ------------------------------------------------------------
+  function buildLegend(){
+    const c=$("legend-rows");c.innerHTML="";
+    SECTION_LIST.forEach(sec=>{const d=document.createElement("div");d.className="lg";
+      d.innerHTML=`<span class="sw" style="background:${SECTION_COLORS[sec]}"></span>${sec}`;c.appendChild(d);});
+    const d=document.createElement("div");d.className="lg";
+    d.innerHTML=`<span class="sw" style="background:${UNASSIGNED}"></span>Unassigned`;c.appendChild(d);
+    // populate assign-section dropdown
+    const sel=$("assign-section"); sel.innerHTML="";
+    SECTION_LIST.forEach(s=>{const o=document.createElement("option");o.value=s;o.textContent=s;sel.appendChild(o);});
+    const o=document.createElement("option");o.value="";o.textContent="(unassign)";sel.appendChild(o);
+  }
+
+  // ---- Entry flow (click any module) -------------------------------------
+  let currentRow=null, entryMods=[], entryIdx=0;
+  function openEntry(m){
+    currentRow=m.row;
+    entryMods=currentRow.modules.slice().sort((a,b)=>a.n-b.n);
+    entryIdx=Math.max(0,entryMods.findIndex(x=>x.id===m.id));
+    $("entry").classList.add("open");
+    renderEntry(); draw();
+  }
+  function closeEntry(){currentRow=null;$("entry").classList.remove("open");draw();}
+  $("btn-close").addEventListener("click",closeEntry);
+
+  function renderEntry(){
+    const m=entryMods[entryIdx];if(!m)return;
+    const a=assignments[m.id]||{};
+    const sec=sections[m.id]||"—";
+    $("e-row").textContent="Row "+currentRow.id;
+    $("e-prog").textContent=`Module ${m.n} / ${entryMods.length}`;
+    $("e-sec").textContent=sec;
+    $("e-rowid").textContent=currentRow.id;
+    $("e-mod").textContent=m.n;
+    const pw=$("photo"); pw.innerHTML="";
+    if(a.hasPhoto){const im=document.createElement("img");im.src=MidwayAPI.photoUrl(m.id,a.ts||Date.now());im.alt=m.id;pw.appendChild(im);}
+    else pw.innerHTML='<div class="ph">No photo yet — tap "Take / Upload photo".</div>';
+    $("serial").value=a.serial||"";
+    $("ocr").textContent=a.hasPhoto?(a.user?("Captured by "+a.user):""):"—";
+    // Block Next while ANY upload is in flight, or until this module has a photo.
+    $("btn-next").disabled = inFlight>0 || !(assignments[m.id]&&assignments[m.id].hasPhoto);
+    $("btn-prev").disabled = entryIdx<=0;
+    $("shift-from").value = Math.max(1,m.n-3);
+    $("shift-to").value   = Math.min(entryMods.length, m.n+3);
+    draw();
+  }
+
+  $("btn-photo").addEventListener("click",()=>{if(!canEdit())return requireAuth();$("file").click();});
+  $("file").addEventListener("change",async e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    const m=entryMods[entryIdx], moduleId=m.id, rowId=currentRow.id;
+    $("bar").classList.add("show"); $("bar").firstElementChild.style.width="15%";
+    try{
+      const dataURL=await fileToDataURL(f); $("bar").firstElementChild.style.width="60%";
+      const res=await MidwayAPI.saveCapture(moduleId,{row:rowId, photoDataUrl:dataURL});
+      $("bar").firstElementChild.style.width="100%";
+      if(res.queued){
+        assignments[moduleId]={...(assignments[moduleId]||{}),row:rowId,hasPhoto:true,user:MidwayAPI.userName(),ts:new Date().toISOString()};
+        toast("Offline — saved locally, will sync");
+      } else {
+        assignments[moduleId]={serial:res.serial||"",user:res.user,ts:res.ts,row:res.row,hasPhoto:true};
+      }
+    }catch(err){
+      console.error(err);
+      toast("Save failed: "+(err.message||err),3500,true);
+      addFailure({moduleId,row:rowId,section:sections[moduleId]||"—",module:m.n,reason:String(err.message||err)});
+    }
+    $("bar").classList.remove("show"); $("bar").firstElementChild.style.width="0";
+    renderEntry();
+    e.target.value="";
+  });
+  $("serial").addEventListener("change",async ()=>{
+    if(!canEdit())return;
+    const m=entryMods[entryIdx]; const sv=$("serial").value.trim();
+    const a=assignments[m.id]; if(!a&&!sv)return;
+    try{
+      const res=await MidwayAPI.saveCapture(m.id,{row:currentRow.id, serial:sv});
+      if(!res.queued)assignments[m.id]={...(assignments[m.id]||{}),serial:res.serial,user:res.user,ts:res.ts,hasPhoto:res.hasPhoto};
+      else assignments[m.id]={...(assignments[m.id]||{}),serial:sv};
+      draw();
+    }catch(err){toast("Save failed: "+(err.message||err),3500,true);
+      addFailure({moduleId:m.id,row:currentRow.id,section:sections[m.id]||"—",module:m.n,reason:String(err.message||err)});}
+  });
+  $("btn-next").addEventListener("click",()=>{
+    if(inFlight>0)return;
+    $("serial").dispatchEvent(new Event("change"));
+    if(entryIdx>=entryMods.length-1){toast("Row "+currentRow.id+" complete");closeEntry();return;}
+    entryIdx++;renderEntry();
+  });
+  $("btn-prev").addEventListener("click",()=>{if(entryIdx>0){entryIdx--;renderEntry();}});
+
+  // ---- Shift serials in row ---------------------------------------------
+  async function shiftSerials(delta){
+    if(!canEdit())return;
+    const from=Math.max(1,parseInt($("shift-from").value)||0);
+    const to  =Math.min(entryMods.length,parseInt($("shift-to").value)||0);
+    if(to<from){toast("Bad range",2000,true);return;}
+    if(!confirm(`Shift serials ${from}–${to} in row ${currentRow.id} by ${delta>0?"+":""}${delta}?`))return;
+    // Capture the OLD serial map first; otherwise iterative writes contaminate.
+    const oldSerials={}; entryMods.forEach(m=>{oldSerials[m.n]=(assignments[m.id]||{}).serial||"";});
+    const updates=[];
+    for(let n=from;n<=to;n++){
+      const target=entryMods.find(m=>m.n===n); if(!target)continue;
+      const sourceN=n - delta;
+      const newSerial=oldSerials[sourceN]||"";
+      updates.push({moduleId:target.id,row:currentRow.id,serial:newSerial});
+    }
+    // Run sequentially to avoid blowing the index CAS contention.
+    let ok=0,fail=0;
+    for(const u of updates){
+      try{
+        const res=await MidwayAPI.saveCapture(u.moduleId,{row:u.row, serial:u.serial});
+        if(!res.queued)assignments[u.moduleId]={...(assignments[u.moduleId]||{}),serial:res.serial,user:res.user,ts:res.ts,hasPhoto:res.hasPhoto};
+        else assignments[u.moduleId]={...(assignments[u.moduleId]||{}),serial:u.serial};
+        ok++;
+      }catch(e){fail++;addFailure({moduleId:u.moduleId,row:u.row,section:sections[u.moduleId]||"—",module:entryMods.find(m=>m.id===u.moduleId)?.n,reason:e.message||String(e)});}
+    }
+    renderEntry(); draw();
+    toast(`Shifted ${ok} serial${ok===1?"":"s"}${fail?` · ${fail} failed`:""}`,3000,fail>0);
+  }
+  $("shift-up").addEventListener("click",()=>shiftSerials(-1));
+  $("shift-down").addEventListener("click",()=>shiftSerials(+1));
+
+  // ---- Assign mode -------------------------------------------------------
+  let assignMode=false, assignSelection=new Set(), assignDrag=null;
+  function setAssignMode(on){
+    assignMode=on;
+    $("btn-assign").classList.toggle("on",on);
+    $("assign-panel").classList.toggle("show",on);
+    if(!on){assignSelection.clear(); draw();}
+    updateAssignCount();
+  }
+  function toggleAssignSel(id){ if(assignSelection.has(id))assignSelection.delete(id); else assignSelection.add(id); updateAssignCount(); }
+  function updateAssignCount(){ $("assign-count").textContent = assignSelection.size + " selected"; }
+  $("btn-assign").addEventListener("click",()=>{if(!canEdit())return requireAuth(); setAssignMode(!assignMode);});
+  $("assign-done").addEventListener("click",()=>setAssignMode(false));
+  $("assign-clear").addEventListener("click",()=>{assignSelection.clear(); updateAssignCount(); draw();});
+  $("assign-apply").addEventListener("click",async ()=>{
+    if(!assignSelection.size){toast("Nothing selected");return;}
+    const sec=$("assign-section").value;
+    const map={}; assignSelection.forEach(id=>{map[id]=sec;});
+    try{
+      await MidwayAPI.assignSections(map);
+      assignSelection.forEach(id=>{ if(sec)sections[id]=sec; else delete sections[id]; });
+      toast(`Assigned ${assignSelection.size} module${assignSelection.size===1?"":"s"} to ${sec||"unassigned"}`);
+      assignSelection.clear(); updateAssignCount(); draw();
+    }catch(e){toast("Assign failed: "+(e.message||e),3500,true);}
+  });
+
+  // ---- Failure tray ------------------------------------------------------
+  const failures=[]; // {moduleId,row,section,module,reason}
+  function addFailure(f){
+    failures.push(f);
+    const el=document.createElement("div"); el.className="item";
+    el.innerHTML=`<span class="x" data-i="${failures.length-1}">×</span>`+
+      `<div class="id">⚠ Redo: Section ${f.section} · Row ${f.row} · Module ${f.module}</div>`+
+      `<div class="sub">${(f.reason||"upload failed").replace(/</g,"&lt;")}</div>`;
+    $("failures").appendChild(el); $("failures").classList.add("show");
+    el.querySelector(".x").addEventListener("click",e=>{el.remove(); if(!$("failures").children.length)$("failures").classList.remove("show");});
+  }
+
+  // ---- Export to Google-Sheets-friendly CSV -----------------------------
+  function csvEscape(v){ v=v==null?"":String(v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+  $("btn-export").addEventListener("click",()=>{
+    const lines=[["Section","Row","Module","Module ID","Serial","Has Photo","Captured By","Captured At"].map(csvEscape).join(",")];
+    rows.forEach(r=>r.modules.forEach(m=>{
+      const a=assignments[m.id]||{}, sec=sections[m.id]||"";
+      lines.push([sec, r.id, m.n, m.id, a.serial||"", a.hasPhoto?"YES":"", a.user||"", a.ts||""].map(csvEscape).join(","));
+    }));
+    const blob=new Blob([lines.join("\n")],{type:"text/csv;charset=utf-8"});
+    const url=URL.createObjectURL(blob); const aa=document.createElement("a");
+    aa.href=url; aa.download="midway_modules.csv"; document.body.appendChild(aa); aa.click();
+    setTimeout(()=>{URL.revokeObjectURL(url); aa.remove();},800);
+    toast(`Exported ${lines.length-1} rows · open in Google Sheets via File → Import`);
+  });
+
+  // ---- Auth + queue UI ---------------------------------------------------
+  function refreshAuthUI(){
+    const u=window.MidwayAPI && MidwayAPI.user();
+    signedIn=!!u;
+    document.body.classList.toggle("no-edit", !canEdit());
+    $("who").textContent = u ? MidwayAPI.userName() : "";
+    $("btn-auth").textContent = u ? "Sign out" : "Sign in";
+    $("btn-invite").style.display = (u && MidwayAPI.isAdmin()) ? "" : "none";
+    $("gate").style.display = (u || READONLY) ? "none" : "block";
+  }
+  $("btn-auth").addEventListener("click",()=>{ const u=MidwayAPI.user(); u?MidwayAPI.logout():MidwayAPI.login(); });
+  $("gate-login").addEventListener("click",()=>MidwayAPI.login());
+  $("btn-invite").addEventListener("click",()=>{ $("invite-modal").style.display="block"; $("invite-email").focus(); });
+  $("invite-cancel").addEventListener("click",()=>{ $("invite-modal").style.display="none"; });
+  $("invite-send").addEventListener("click",async()=>{
+    const email=$("invite-email").value.trim(); if(!email)return;
+    try{
+      const {link}=await MidwayAPI.invite(email);
+      try{ await navigator.clipboard.writeText(link); }catch(_){}
+      $("invite-modal").innerHTML=
+        '<div style="font-weight:600;margin-bottom:8px">Invite link for '+email+'</div>'+
+        '<div style="color:var(--muted);font-size:12px;margin-bottom:8px">Copied to clipboard. Send it to them — they set a password and join.</div>'+
+        '<input type="text" readonly value="'+link+'" style="width:100%;padding:9px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:var(--fg);font-size:11px;font-family:inherit" onclick="this.select()" />'+
+        '<button class="btn primary" style="width:100%;padding:10px;margin-top:12px" onclick="document.getElementById(\'invite-modal\').style.display=\'none\'">Done</button>';
+    }catch(e){ toast("Invite failed: "+(e.message||e),3500,true); }
+  });
+
+  if(window.MidwayAPI){
+    MidwayAPI.onChange((u)=>{ refreshAuthUI(); if(u) loadAll(); });
+    MidwayAPI.onQueueChange(({inFlight:i,queued:q})=>{
+      inFlight=i; queued=q;
+      const b=$("qbadge"); b.textContent=`${q} queued${i?` · ${i} sending`:""}`;
+      b.classList.toggle("show",(q+i)>0);
+      if(currentRow)renderEntry();
+    });
+    MidwayAPI.onCaptureSynced(({moduleId,result})=>{
+      assignments[moduleId]={serial:result.serial||"",user:result.user,ts:result.ts,row:result.row,hasPhoto:result.hasPhoto};
+      draw(); if(currentRow)renderEntry();
+    });
+    MidwayAPI.onCaptureFailed(({moduleId,opts,error})=>{
+      const m=modWorld.find(x=>x.id===moduleId);
+      addFailure({moduleId, row: opts.row||(m?m.row.id:"?"), section: sections[moduleId]||"—", module: m?m.n:"?", reason:error});
+    });
+    MidwayAPI.init().then(()=>{ refreshAuthUI(); if(MidwayAPI.user()) loadAll(); });
+  }
+
+  resize();
+  </script>
+</body>
+</html>

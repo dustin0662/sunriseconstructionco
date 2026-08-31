@@ -1,0 +1,65 @@
+name: Deploy pile viewer
+
+on:
+  push:
+    branches:
+      - claude/fervent-faraday-IS9GD
+      - main
+    paths:
+      - pile_viewer.html
+      - favicon.svg
+      - models/midway.glb
+      - data/piles.json
+      - data/kmz_reference.json
+      - data/kmz/files/**
+      - assets/three.module-C7ia6f3T.js
+      - assets/GLTFLoader-CGtRWvqK.js
+      - assets/OrbitControls-Bk8Ii4mF.js
+      - scripts/build_viewer_bundle.sh
+      - .github/workflows/deploy-pile-viewer.yml
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pile-viewer-deploy
+  cancel-in-progress: true
+
+jobs:
+  rebuild-deploy-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout work branch
+        uses: actions/checkout@v4
+        with:
+          # Work-branch checkout. We don't need history, just the latest tree.
+          fetch-depth: 1
+
+      - name: Build viewer bundle
+        run: bash scripts/build_viewer_bundle.sh "$RUNNER_TEMP/bundle"
+
+      - name: Force-push bundle to pile-viewer-deploy
+        run: |
+          set -e
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          BUNDLE="$RUNNER_TEMP/bundle"
+          WORK="$RUNNER_TEMP/deploy-work"
+          # Initialize a fresh clone limited to .git only, so we can craft a
+          # single-commit orphan branch and force-push it.
+          rm -rf "$WORK"
+          mkdir -p "$WORK"
+          cd "$WORK"
+          git init -q -b pile-viewer-deploy
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+
+          # Copy bundle contents.
+          cp -a "$BUNDLE"/. .
+          git add -A
+          git commit -q -m "Deploy bundle from ${{ github.sha }}"
+          # Force push: deploy branch is always a single-commit branch
+          # tracking the latest work-branch state. No retention of prior
+          # deploys (Netlify keeps its own deploy history).
+          git push -f origin pile-viewer-deploy
